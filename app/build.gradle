@@ -1,0 +1,15 @@
+apply plugin: 'com.android.application'
+
+android {
+    namespace 'com.todomaster.app'
+    compileSdk 37
+    buildToolsVersion '36.0.0'
+
+    defaultConfig {
+        applicationId 'com.todomaster.app'
+        minSdk 26
+        targetSdk 35
+        versionCode 18
+        versionName '2.7'
+    }
+}
