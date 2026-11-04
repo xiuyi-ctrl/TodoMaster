@@ -35,6 +35,7 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
 import android.widget.PopupMenu;
+import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.text.SimpleDateFormat;
@@ -594,19 +595,10 @@ public final class MainActivity extends Activity {
         });
         TextView more = text("⋮", 24, BLUE, false);
         more.setGravity(Gravity.CENTER);
+        more.setContentDescription("任务操作");
         top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(48)));
         card.addView(top);
-        more.setOnClickListener(v -> {
-            PopupMenu popup = new PopupMenu(this, more);
-            popup.getMenu().add("编辑");
-            popup.getMenu().add("删除");
-            popup.setOnMenuItemClickListener(item -> {
-                if (item.getTitle().equals("编辑")) edit(task);
-                else confirmDelete(task);
-                return true;
-            });
-            popup.show();
-        });
+        more.setOnClickListener(v -> showTaskMenu(more, task));
         card.setOnClickListener(v -> edit(task));
 
         LinearLayout badges = row();
@@ -631,6 +623,45 @@ public final class MainActivity extends Activity {
             else card.addView(meta(R.drawable.ic_calendar, due, false));
         }
         if (task.remindAt > 0 && !task.done && task.dueAt == 0) card.addView(meta(R.drawable.ic_bell, reminderLabel(task), false));
+    }
+
+    private void showTaskMenu(View anchor, TaskStore.Task task) {
+        LinearLayout menu = column();
+        menu.setPadding(dp(5), dp(5), dp(5), dp(5));
+        menu.setBackground(shape(Color.WHITE, 16, Color.rgb(225, 214, 244)));
+        PopupWindow popup = new PopupWindow(menu, dp(168), -2, true);
+        popup.setBackgroundDrawable(shape(Color.WHITE, 16, Color.rgb(225, 214, 244)));
+        popup.setElevation(dp(8));
+        popup.setOutsideTouchable(true);
+
+        LinearLayout editAction = row();
+        editAction.setGravity(Gravity.CENTER_VERTICAL);
+        editAction.setPadding(dp(12), 0, dp(10), 0);
+        editAction.setBackground(shape(PALE, 12, 0));
+        ImageView pencil = new ImageView(this);
+        pencil.setImageResource(R.drawable.ic_pencil);
+        pencil.setColorFilter(VIOLET);
+        editAction.addView(pencil, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView editLabel = text("编辑待办", 15, VIOLET, true);
+        editLabel.setPadding(dp(12), 0, 0, 0);
+        editAction.addView(editLabel);
+        menu.addView(editAction, new LinearLayout.LayoutParams(-1, dp(48)));
+        editAction.setOnClickListener(v -> { popup.dismiss(); edit(task); });
+
+        LinearLayout deleteAction = row();
+        deleteAction.setGravity(Gravity.CENTER_VERTICAL);
+        deleteAction.setPadding(dp(12), 0, dp(10), 0);
+        ImageView bin = new ImageView(this);
+        bin.setImageResource(R.drawable.ic_trash);
+        bin.setColorFilter(Color.rgb(218, 102, 94));
+        deleteAction.addView(bin, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView deleteLabel = text("删除待办", 15, Color.rgb(218, 102, 94), true);
+        deleteLabel.setPadding(dp(12), 0, 0, 0);
+        deleteAction.addView(deleteLabel);
+        menu.addView(deleteAction, new LinearLayout.LayoutParams(-1, dp(48)));
+        deleteAction.setOnClickListener(v -> { popup.dismiss(); confirmDelete(task); });
+
+        popup.showAsDropDown(anchor, dp(40) - dp(168), -dp(2));
     }
 
     private void cancelTaskAnimation() {
