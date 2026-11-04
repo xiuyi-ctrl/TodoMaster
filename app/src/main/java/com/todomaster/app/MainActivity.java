@@ -34,7 +34,6 @@ import android.widget.HorizontalScrollView;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.NumberPicker;
-import android.widget.PopupMenu;
 import android.widget.PopupWindow;
 import android.widget.ScrollView;
 import android.widget.TextView;
@@ -246,15 +245,9 @@ public final class MainActivity extends Activity {
             menu.setGravity(Gravity.CENTER);
             header.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
             menu.setOnClickListener(v -> {
-                PopupMenu popup = new PopupMenu(this, menu);
-                popup.getMenu().add("回收站");
-                popup.getMenu().add("设置");
-                popup.setOnMenuItemClickListener(item -> {
-                    if (item.getTitle().equals("设置")) showSettings();
-                    else { trash = true; showHome(); }
-                    return true;
-                });
-                popup.show();
+                showChoiceMenu(menu, 168, new String[]{"回收站", "设置"},
+                        new int[]{R.drawable.ic_trash, R.drawable.ic_settings},
+                        new Runnable[]{() -> { trash = true; showHome(); }, this::showSettings});
             });
         }
         root.addView(header);
@@ -664,6 +657,32 @@ public final class MainActivity extends Activity {
         popup.showAsDropDown(anchor, dp(40) - dp(168), -dp(2));
     }
 
+    private void showChoiceMenu(View anchor, int width, String[] labels, int[] icons, Runnable[] actions) {
+        LinearLayout menu = column();
+        menu.setPadding(dp(5), dp(5), dp(5), dp(5));
+        menu.setBackground(shape(Color.WHITE, 16, Color.rgb(225, 214, 244)));
+        PopupWindow popup = new PopupWindow(menu, dp(width), -2, true);
+        popup.setBackgroundDrawable(shape(Color.WHITE, 16, Color.rgb(225, 214, 244)));
+        popup.setElevation(dp(8));
+        popup.setOutsideTouchable(true);
+        for (int i = 0; i < labels.length; i++) {
+            int index = i;
+            LinearLayout action = row();
+            action.setGravity(Gravity.CENTER_VERTICAL);
+            action.setPadding(dp(12), 0, dp(10), 0);
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(icons[i]);
+            icon.setColorFilter(VIOLET);
+            action.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            TextView label = text(labels[i], 15, NAVY, false);
+            label.setPadding(dp(12), 0, 0, 0);
+            action.addView(label);
+            menu.addView(action, new LinearLayout.LayoutParams(-1, dp(48)));
+            action.setOnClickListener(v -> { popup.dismiss(); actions[index].run(); });
+        }
+        popup.showAsDropDown(anchor, anchor.getWidth() - dp(width), -dp(2));
+    }
+
     private void cancelTaskAnimation() {
         taskTransitionToken++;
         if (taskAnimator != null) {
@@ -978,22 +997,22 @@ public final class MainActivity extends Activity {
                     ? "请先选择截止时间" : "已设置 " + advances.size() + " 次提醒，点击上方时间可移除");
         };
         reminder.setOnClickListener(v -> {
-            PopupMenu popup = new PopupMenu(this, reminder);
-            for (int i = 1; i < REMINDERS.length; i++) popup.getMenu().add(REMINDERS[i]);
-            popup.getMenu().add("自定义…");
-            popup.setOnMenuItemClickListener(item -> {
-                if (item.getTitle().equals("自定义…")) {
-                    chooseCustomReminder(0, minutes -> {
-                        if (!advances.contains(minutes)) advances.add(minutes);
-                        refreshHint.run();
-                    });
-                    return true;
-                }
-                for (int i = 1; i < REMINDERS.length; i++) if (REMINDERS[i].contentEquals(item.getTitle()) && !advances.contains(ADVANCE[i])) advances.add(ADVANCE[i]);
+            String[] labels = {REMINDERS[1], REMINDERS[2], REMINDERS[3], REMINDERS[4], "自定义…"};
+            int[] icons = {R.drawable.ic_bell, R.drawable.ic_bell, R.drawable.ic_bell,
+                    R.drawable.ic_bell, R.drawable.ic_pencil};
+            Runnable[] actions = new Runnable[labels.length];
+            for (int i = 0; i < 4; i++) {
+                long minutes = ADVANCE[i + 1];
+                actions[i] = () -> {
+                    if (!advances.contains(minutes)) advances.add(minutes);
+                    refreshHint.run();
+                };
+            }
+            actions[4] = () -> chooseCustomReminder(0, minutes -> {
+                if (!advances.contains(minutes)) advances.add(minutes);
                 refreshHint.run();
-                return true;
             });
-            popup.show();
+            showChoiceMenu(reminder, 168, labels, icons, actions);
         });
         date.setOnClickListener(v -> {
             if (useWheelDatePicker()) pickDueDateTime(due, date, time, refreshHint);
