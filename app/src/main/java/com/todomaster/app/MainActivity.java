@@ -1501,7 +1501,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void toast(String message) {
-        FrameLayout frame = surface;
+        FrameLayout frame = homeHeading instanceof FrameLayout ? (FrameLayout) homeHeading : surface;
         if (frame == null) return;
         View previous = frame.findViewWithTag("message");
         if (previous != null) frame.removeView(previous);
@@ -1514,23 +1514,15 @@ public final class MainActivity extends Activity {
         notice.setPadding(dp(14), 0, dp(14), 0);
         notice.setBackground(shape(success ? MINT : PALE, 16, 0));
         notice.setElevation(dp(8));
-        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, dp(44), Gravity.TOP | Gravity.END);
-        params.rightMargin = dp(gutter());
-        params.topMargin = topInset + dp(74);
+        boolean inHeading = frame == homeHeading;
+        FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, dp(inHeading ? 36 : 44),
+                inHeading ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.TOP | Gravity.END);
+        if (!inHeading) {
+            params.rightMargin = dp(gutter());
+            params.topMargin = topInset + dp(74);
+        }
+        notice.setMaxWidth(dp(180));
         frame.addView(notice, params);
-        frame.post(() -> {
-            if (notice.getParent() != frame) return;
-            View heading = homeHeading;
-            if (heading != null && heading.isAttachedToWindow()) {
-                int[] headingPosition = new int[2];
-                int[] framePosition = new int[2];
-                heading.getLocationOnScreen(headingPosition);
-                frame.getLocationOnScreen(framePosition);
-                params.topMargin = headingPosition[1] - framePosition[1] + (heading.getHeight() - dp(44)) / 2;
-            }
-            notice.setMaxWidth(Math.max(dp(120), frame.getWidth() - dp(gutter() * 2 + 130)));
-            notice.setLayoutParams(params);
-        });
         notice.setTranslationX(dp(250));
         notice.setAlpha(0f);
         notice.animate().translationX(0).alpha(1f).setDuration(220).start();
