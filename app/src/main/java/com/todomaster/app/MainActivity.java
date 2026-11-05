@@ -581,8 +581,13 @@ public final class MainActivity extends Activity {
         title.setGravity(Gravity.CENTER_VERTICAL);
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         check.setOnCheckedChangeListener((button, checked) -> {
-            task.done = checked;
-            store.save(task);
+            if (checked) {
+                TaskStore.Task next = store.completeAndAdvance(task);
+                if (next != null) ReminderScheduler.update(this, next);
+            } else {
+                task.done = false;
+                store.save(task);
+            }
             ReminderScheduler.update(this, task);
             animateTaskChange(task, card, check, title, cardBackground, checked);
         });
@@ -616,6 +621,8 @@ public final class MainActivity extends Activity {
             else card.addView(meta(R.drawable.ic_calendar, due, false));
         }
         if (task.remindAt > 0 && !task.done && task.dueAt == 0) card.addView(meta(R.drawable.ic_bell, reminderLabel(task), false));
+        if (task.repeatDays > 0 && !task.done) card.addView(meta(R.drawable.ic_clock,
+                task.repeatDays == 1 ? "每天重复" : task.repeatDays == 7 ? "每周重复" : "每" + task.repeatDays + "天重复", false));
     }
 
     private void showTaskMenu(View anchor, TaskStore.Task task) {
@@ -961,6 +968,24 @@ public final class MainActivity extends Activity {
         timeParams.topMargin = dp(4);
         dueGroup.addView(timeRow, timeParams);
 
+        LinearLayout repeatGroup = formGroup(form);
+        repeatGroup.addView(section("重复待办"));
+        int[] repeatDays = {task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? -1 : task.repeatDays};
+        LinearLayout repeatChoices = row();
+        repeatGroup.addView(horizontal(repeatChoices));
+        EditText customRepeat = input("间隔天数", task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7
+                ? Integer.toString(task.repeatDays) : "", true);
+        customRepeat.setInputType(InputType.TYPE_CLASS_NUMBER);
+        customRepeat.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(3)});
+        repeatGroup.addView(customRepeat, new LinearLayout.LayoutParams(-1, dp(44)));
+        customRepeat.setVisibility(task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? View.VISIBLE : View.GONE);
+        String repeatSelected = task.repeatDays == 1 ? "每天" : task.repeatDays == 7 ? "每周"
+                : task.repeatDays > 0 ? "自定义" : "不重复";
+        fillChoices(repeatChoices, new String[]{"不重复", "每天", "每周", "自定义"}, repeatSelected, value -> {
+            repeatDays[0] = value.equals("每天") ? 1 : value.equals("每周") ? 7 : value.equals("自定义") ? -1 : 0;
+            customRepeat.setVisibility(value.equals("自定义") ? View.VISIBLE : View.GONE);
+        });
+
         LinearLayout reminderGroup = formGroup(form);
         reminderGroup.addView(section("到期前提醒"));
         List<Long> advances = new ArrayList<>();
@@ -1033,6 +1058,13 @@ public final class MainActivity extends Activity {
             String value = title.getText().toString().trim();
             if (value.isEmpty()) { title.setError("请输入任务标题"); return; }
             if (due[0] > 0 && due[0] <= System.currentTimeMillis()) { toast("截止时间需晚于当前时间"); return; }
+            int interval = repeatDays[0];
+            if (interval == -1) {
+                try { interval = Integer.parseInt(customRepeat.getText().toString()); }
+                catch (NumberFormatException error) { customRepeat.setError("请输入间隔天数"); return; }
+                if (interval < 1) { customRepeat.setError("间隔至少 1 天"); return; }
+            }
+            if (interval > 0 && due[0] == 0) { toast("重复待办需设置截止时间"); return; }
             if (!advances.isEmpty() && due[0] == 0) { toast("请先选择截止时间"); return; }
             List<Long> reminderTimes = new ArrayList<>();
             for (long minutes : advances) {
@@ -1045,6 +1077,7 @@ public final class MainActivity extends Activity {
             task.category = chosenCategory[0];
             task.priority = chosenPriority[0];
             task.dueAt = due[0];
+            task.repeatDays = interval;
             task.reminderTimes.clear();
             task.reminderTimes.addAll(reminderTimes);
             task.remindAt = reminderTimes.isEmpty() ? 0 : Collections.min(reminderTimes);

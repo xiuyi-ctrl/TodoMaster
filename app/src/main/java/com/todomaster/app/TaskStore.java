@@ -7,19 +7,21 @@ import android.database.sqlite.SQLiteDatabase;
 import android.database.sqlite.SQLiteOpenHelper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Calendar;
 
 final class TaskStore extends SQLiteOpenHelper {
     static final class Task {
         long id, dueAt, remindAt, deletedAt, createdAt;
+        int repeatDays;
         final List<Long> reminderTimes = new ArrayList<>();
         String title, note, category, priority;
         boolean done, deleted;
     }
 
-    TaskStore(Context context) { super(context, "tasks.db", null, 4); }
+    TaskStore(Context context) { super(context, "tasks.db", null, 5); }
 
     @Override public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', repeat_days INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -29,6 +31,7 @@ final class TaskStore extends SQLiteOpenHelper {
             db.execSQL("UPDATE tasks SET created_at = id WHERE created_at = 0");
         }
         if (oldVersion < 4) db.execSQL("ALTER TABLE tasks ADD COLUMN reminder_times TEXT NOT NULL DEFAULT ''");
+        if (oldVersion < 5) db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_days INTEGER NOT NULL DEFAULT 0");
     }
 
     long save(Task task) {
@@ -46,6 +49,7 @@ final class TaskStore extends SQLiteOpenHelper {
             times.append(time);
         }
         values.put("reminder_times", times.toString());
+        values.put("repeat_days", task.repeatDays);
         values.put("done", task.done ? 1 : 0);
         values.put("deleted", task.deleted ? 1 : 0);
         values.put("deleted_at", task.deletedAt);
@@ -73,6 +77,44 @@ final class TaskStore extends SQLiteOpenHelper {
         getWritableDatabase().delete("tasks", "id=? AND deleted=1", new String[]{String.valueOf(id)});
     }
 
+    Task completeAndAdvance(Task task) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            ContentValues completed = new ContentValues();
+            completed.put("done", 1);
+            completed.put("repeat_days", 0);
+            if (db.update("tasks", completed, "id=? AND done=0 AND deleted=0",
+                    new String[]{String.valueOf(task.id)}) == 0) return null;
+            task.done = true;
+            int interval = task.repeatDays;
+            task.repeatDays = 0;
+            Task next = null;
+            if (interval > 0 && task.dueAt > 0) {
+                next = new Task();
+                next.title = task.title;
+                next.note = task.note;
+                next.category = task.category;
+                next.priority = task.priority;
+                next.repeatDays = interval;
+                Calendar date = Calendar.getInstance();
+                date.setTimeInMillis(task.dueAt);
+                do { date.add(Calendar.DAY_OF_YEAR, interval); }
+                while (date.getTimeInMillis() <= System.currentTimeMillis());
+                next.dueAt = date.getTimeInMillis();
+                for (long time : task.reminderTimes) {
+                    long advance = task.dueAt - time;
+                    long nextTime = next.dueAt - advance;
+                    if (advance > 0 && nextTime > System.currentTimeMillis()) next.reminderTimes.add(nextTime);
+                }
+                next.remindAt = next.reminderTimes.isEmpty() ? 0 : java.util.Collections.min(next.reminderTimes);
+                save(next);
+            }
+            db.setTransactionSuccessful();
+            return next;
+        } finally { db.endTransaction(); }
+    }
+
     private Task read(Cursor c) {
         Task t = new Task();
         t.id = c.getLong(c.getColumnIndexOrThrow("id"));
@@ -90,6 +132,7 @@ final class TaskStore extends SQLiteOpenHelper {
         t.deleted = c.getInt(c.getColumnIndexOrThrow("deleted")) != 0;
         t.deletedAt = c.getLong(c.getColumnIndexOrThrow("deleted_at"));
         t.createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"));
+        t.repeatDays = c.getInt(c.getColumnIndexOrThrow("repeat_days"));
         return t;
     }
 }
