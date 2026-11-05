@@ -84,8 +84,13 @@ public final class MainActivity extends Activity {
     private View homeHeading;
     private int topInset;
     private LinearLayout list;
+    private ScrollView homeScroll;
     private TextView summary;
     private String filter = "未完成";
+    private String todoFilter = "未完成";
+    private String timedFilter = "未完成";
+    private int todoScrollY;
+    private int timedScrollY;
     private String query = "";
     private String searchCategory = "全部";
     private String searchStatus = "全部";
@@ -95,6 +100,7 @@ public final class MainActivity extends Activity {
     private boolean trash;
     private boolean searching;
     private boolean settings;
+    private boolean timedPage;
     private String settingsPage = "home";
     private boolean editing;
     private ValueAnimator taskAnimator;
@@ -113,13 +119,25 @@ public final class MainActivity extends Activity {
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
+        for (TaskStore.Task task : store.all(false)) {
+            store.advanceTimed(task);
+            ReminderScheduler.update(this, task);
+        }
         showHome();
-        for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
         openFromNotification(getIntent());
     }
 
     @Override protected void onResume() {
         super.onResume();
+        boolean advanced = false;
+        for (TaskStore.Task task : store.all(false)) {
+            if (task.timed && !task.paused && task.repeatDays > 0 && task.dueAt <= System.currentTimeMillis()) {
+                store.advanceTimed(task);
+                ReminderScheduler.update(this, task);
+                advanced = true;
+            }
+        }
+        if (advanced && !editing && !trash && !searching && !settings) showHome();
         boolean allowed = ReminderScheduler.canScheduleExactly(this);
         if (allowed != exactAlarmAllowed) {
             exactAlarmAllowed = allowed;
@@ -173,7 +191,10 @@ public final class MainActivity extends Activity {
         intent.removeExtra("task_id");
         if (id > 0) {
             TaskStore.Task task = store.get(id);
-            if (task != null && !task.deleted) edit(task);
+            if (task != null && !task.deleted) {
+                timedPage = task.timed;
+                edit(task);
+            }
         }
     }
 
@@ -452,7 +473,7 @@ public final class MainActivity extends Activity {
             back.setGravity(Gravity.CENTER);
             header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(52)));
             back.setOnClickListener(v -> { trash = false; searching = false; query = ""; showHome(); });
-            TextView title = text(trash ? "回收站" : "搜索待办", 23, NAVY, true);
+            TextView title = text(trash ? "回收站" : timedPage ? "搜索定时任务" : "搜索待办", 23, NAVY, true);
             title.setGravity(Gravity.CENTER);
             header.addView(title, new LinearLayout.LayoutParams(0, dp(52), 1));
             header.addView(new View(this), new LinearLayout.LayoutParams(dp(48), 1));
@@ -493,7 +514,7 @@ public final class MainActivity extends Activity {
             LinearLayout.LayoutParams fieldParams = new LinearLayout.LayoutParams(-1, dp(48));
             fieldParams.topMargin = dp(10);
             root.addView(searchField, fieldParams);
-            EditText search = input("搜索任务标题", query, true);
+            EditText search = input(timedPage ? "搜索定时任务标题" : "搜索任务标题", query, true);
             search.setPadding(dp(42), 0, dp(42), 0);
             searchField.addView(search, new FrameLayout.LayoutParams(-1, -1));
             ImageView magnifier = new ImageView(this);
@@ -521,7 +542,7 @@ public final class MainActivity extends Activity {
         }
 
         if (!trash && !searching) {
-            TextView pageTitle = text("我的待办", 24, NAVY, true);
+            TextView pageTitle = text(timedPage ? "定时任务  ⌄" : "我的待办  ⌄", 24, NAVY, true);
             FrameLayout pageHeading = new FrameLayout(this);
             View underline = new View(this);
             underline.setBackground(shape(PALE, 8, 0));
@@ -532,6 +553,15 @@ public final class MainActivity extends Activity {
             pageParams.topMargin = dp(14);
             root.addView(pageHeading, pageParams);
             homeHeading = pageHeading;
+            pageHeading.setContentDescription(timedPage ? "切换到我的待办" : "切换到定时任务");
+            pageHeading.setOnClickListener(v -> {
+                if (timedPage) { timedFilter = filter; timedScrollY = homeScroll.getScrollY(); }
+                else { todoFilter = filter; todoScrollY = homeScroll.getScrollY(); }
+                timedPage = !timedPage;
+                filter = timedPage ? timedFilter : todoFilter;
+                showHome();
+                homeScroll.post(() -> homeScroll.scrollTo(0, timedPage ? timedScrollY : todoScrollY));
+            });
         }
 
         summary = text("", 15, NAVY, false);
@@ -575,6 +605,7 @@ public final class MainActivity extends Activity {
         }
 
         ScrollView scroll = new ScrollView(this);
+        homeScroll = scroll;
         scroll.setFillViewport(true);
         scroll.setClipToPadding(false);
         scroll.setVerticalScrollBarEnabled(false);
@@ -583,7 +614,7 @@ public final class MainActivity extends Activity {
         scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         if (!trash && !searching) {
-            TextView add = primary("＋ 添加待办");
+            TextView add = primary(timedPage ? "＋ 添加定时任务" : "＋ 添加待办");
             root.addView(add, new LinearLayout.LayoutParams(-1, dp(48)));
             add.setOnClickListener(v -> edit(null));
         }
@@ -751,6 +782,7 @@ public final class MainActivity extends Activity {
         List<TaskStore.Task> tasks = store.all(trash);
         int complete = 0, visible = 0;
         for (TaskStore.Task task : tasks) {
+            if (!trash && task.timed != timedPage) continue;
             if (task.done) complete++;
             if (!trash && !searching && ((filter.equals("未完成") && task.done) || (filter.equals("已完成") && !task.done))) continue;
             if (searching && !task.title.toLowerCase(Locale.ROOT).contains(query.toLowerCase(Locale.ROOT))) continue;
@@ -759,7 +791,11 @@ public final class MainActivity extends Activity {
             else addTask(task);
             visible++;
         }
-        summary.setText(trash ? "回收站  " + tasks.size() + " 项" : "待完成  " + (tasks.size() - complete) + "   │   已完成  " + complete);
+        int total = 0;
+        for (TaskStore.Task task : tasks) if (trash || task.timed == timedPage) total++;
+        summary.setText(trash ? "回收站  " + tasks.size() + " 项" : timedPage
+                ? "进行中  " + (total - complete) + "   │   已完成  " + complete
+                : "待完成  " + (total - complete) + "   │   已完成  " + complete);
         list.setGravity(visible == 0 ? Gravity.CENTER : Gravity.TOP);
         if (visible == 0) {
             LinearLayout empty = column();
@@ -771,7 +807,9 @@ public final class MainActivity extends Activity {
             empty.addView(mascot, new LinearLayout.LayoutParams(dp(trash || searching ? 130 : 190), dp(trash || searching ? 110 : 165)));
             boolean hasSearchCondition = !query.isEmpty() || !searchCategory.equals("全部")
                     || !searchStatus.equals("全部") || !searchPriority.equals("全部") || !searchTime.equals("全部");
-            TextView title = text(trash ? "回收站空空的" : searching && hasSearchCondition ? "没有找到相关待办" : "还没有待办事项", 18, NAVY, true);
+            TextView title = text(trash ? "回收站空空的" : searching && hasSearchCondition
+                    ? timedPage ? "没有找到相关定时任务" : "没有找到相关待办"
+                    : timedPage ? "还没有定时任务" : "还没有待办事项", 18, NAVY, true);
             title.setGravity(Gravity.CENTER);
             empty.addView(title);
             TextView subtitle = text(trash ? "整理得真干净" : searching && hasSearchCondition ? "试试其他关键词或筛选条件" : "先记下一件想做的事吧，一点点也很棒～", 14, MUTED, false);
@@ -811,6 +849,7 @@ public final class MainActivity extends Activity {
         CheckBox check = new CheckBox(this);
         check.setButtonTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{Color.rgb(95, 170, 133), NAVY}));
         check.setChecked(task.done);
+        if (task.timed && task.repeatDays == 0) check.setEnabled(false);
         check.setPadding(0, 0, dp(6), 0);
         top.addView(check, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView title = text(task.title, 17, task.done ? MUTED : NAVY, true);
@@ -818,8 +857,7 @@ public final class MainActivity extends Activity {
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         check.setOnCheckedChangeListener((button, checked) -> {
             if (checked) {
-                TaskStore.Task next = store.completeAndAdvance(task);
-                if (next != null) ReminderScheduler.update(this, next);
+                store.complete(task);
             } else {
                 task.done = false;
                 store.save(task);
@@ -833,7 +871,7 @@ public final class MainActivity extends Activity {
         top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(48)));
         card.addView(top);
         more.setOnClickListener(v -> showTaskMenu(more, task));
-        card.setOnClickListener(v -> edit(task));
+        if (!task.timed || task.repeatDays > 0) card.setOnClickListener(v -> edit(task));
 
         LinearLayout badges = row();
         badges.setPadding(dp(48), 0, 0, dp(4));
@@ -857,8 +895,8 @@ public final class MainActivity extends Activity {
             else card.addView(meta(R.drawable.ic_calendar, due, false));
         }
         if (task.remindAt > 0 && !task.done && task.dueAt == 0) card.addView(meta(R.drawable.ic_bell, reminderLabel(task), false));
-        if (task.repeatDays > 0 && !task.done) card.addView(meta(R.drawable.ic_clock,
-                task.repeatDays == 1 ? "每天重复" : task.repeatDays == 7 ? "每周重复" : "每" + task.repeatDays + "天重复", false));
+        if (task.timed && task.repeatDays > 0) card.addView(meta(R.drawable.ic_clock,
+                task.paused ? "已暂停" : task.repeatDays == 1 ? "每天执行" : task.repeatDays == 7 ? "每周执行" : "每" + task.repeatDays + "天执行", false));
     }
 
     private void showTaskMenu(View anchor, TaskStore.Task task) {
@@ -878,11 +916,28 @@ public final class MainActivity extends Activity {
         pencil.setImageResource(R.drawable.ic_pencil);
         pencil.setColorFilter(VIOLET);
         editAction.addView(pencil, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        TextView editLabel = text("编辑待办", 15, VIOLET, true);
+        TextView editLabel = text(task.timed ? "编辑定时任务" : "编辑待办", 15, VIOLET, true);
         editLabel.setPadding(dp(12), 0, 0, 0);
         editAction.addView(editLabel);
-        menu.addView(editAction, new LinearLayout.LayoutParams(-1, dp(48)));
-        editAction.setOnClickListener(v -> { popup.dismiss(); edit(task); });
+        if (!task.timed || task.repeatDays > 0) {
+            menu.addView(editAction, new LinearLayout.LayoutParams(-1, dp(48)));
+            editAction.setOnClickListener(v -> { popup.dismiss(); edit(task); });
+        }
+
+        if (task.timed && task.repeatDays > 0) {
+            TextView pause = text(task.paused ? "继续定时任务" : "暂停定时任务", 15, VIOLET, true);
+            pause.setGravity(Gravity.CENTER_VERTICAL);
+            pause.setPadding(dp(16), 0, 0, 0);
+            menu.addView(pause, new LinearLayout.LayoutParams(-1, dp(48)));
+            pause.setOnClickListener(v -> {
+                popup.dismiss();
+                task.paused = !task.paused;
+                store.save(task);
+                if (!task.paused) store.advanceTimed(task);
+                ReminderScheduler.update(this, task);
+                render();
+            });
+        }
 
         LinearLayout deleteAction = row();
         deleteAction.setGravity(Gravity.CENTER_VERTICAL);
@@ -891,7 +946,7 @@ public final class MainActivity extends Activity {
         bin.setImageResource(R.drawable.ic_trash);
         bin.setColorFilter(Color.rgb(218, 102, 94));
         deleteAction.addView(bin, new LinearLayout.LayoutParams(dp(20), dp(20)));
-        TextView deleteLabel = text("删除待办", 15, Color.rgb(218, 102, 94), true);
+        TextView deleteLabel = text(task.timed ? "删除定时任务" : "删除待办", 15, Color.rgb(218, 102, 94), true);
         deleteLabel.setPadding(dp(12), 0, 0, 0);
         deleteAction.addView(deleteLabel);
         menu.addView(deleteAction, new LinearLayout.LayoutParams(-1, dp(48)));
@@ -1005,12 +1060,17 @@ public final class MainActivity extends Activity {
         restore.setOnClickListener(v -> {
             task.deleted = false;
             task.deletedAt = 0;
+            if (task.timed && task.repeatDays > 0) {
+                task.paused = false;
+                store.save(task);
+                store.advanceTimed(task);
+            }
             task.reminderTimes.removeIf(time -> time <= System.currentTimeMillis());
             task.remindAt = task.reminderTimes.isEmpty() ? 0 : Collections.min(task.reminderTimes);
             store.save(task);
             ReminderScheduler.update(this, task);
             render();
-            toast("已恢复待办");
+            toast(task.timed ? "已恢复定时任务" : "已恢复待办");
         });
         card.addView(top);
 
@@ -1112,6 +1172,9 @@ public final class MainActivity extends Activity {
         if (list != null) list.animate().cancel();
         editing = true;
         TaskStore.Task task = original == null ? new TaskStore.Task() : original;
+        if (original == null) task.timed = timedPage;
+        else timedPage = task.timed;
+        boolean timedForm = task.timed;
         int gutter = gutter();
         LinearLayout root = column();
         root.setBackgroundColor(BACKGROUND);
@@ -1122,7 +1185,8 @@ public final class MainActivity extends Activity {
         back.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(52)));
         back.setOnClickListener(v -> { editing = false; showHome(); });
-        TextView heading = text(original == null ? "新建待办" : "编辑待办", 22, NAVY, true);
+        TextView heading = text(original == null ? timedForm ? "新建定时任务" : "新建待办"
+                : timedForm ? "编辑定时任务" : "编辑待办", 22, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
         header.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -1187,7 +1251,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout dueGroup = formGroup(form);
         LinearLayout dueHeading = row();
-        dueHeading.addView(section("截止时间"), new LinearLayout.LayoutParams(0, -2, 1));
+        dueHeading.addView(section(timedForm ? original == null ? "首次执行时间" : "下次执行时间" : "截止时间"), new LinearLayout.LayoutParams(0, -2, 1));
         TextView clear = text("清除", 12, BLUE, false);
         clear.setGravity(Gravity.CENTER);
         dueHeading.addView(clear, new LinearLayout.LayoutParams(dp(48), dp(28)));
@@ -1206,26 +1270,28 @@ public final class MainActivity extends Activity {
         timeParams.topMargin = dp(4);
         dueGroup.addView(timeRow, timeParams);
 
-        LinearLayout repeatGroup = formGroup(form);
-        repeatGroup.addView(section("重复待办"));
-        int[] repeatDays = {task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? -1 : task.repeatDays};
-        LinearLayout repeatChoices = row();
-        repeatGroup.addView(horizontal(repeatChoices));
+        int[] repeatDays = {task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? -1
+                : task.repeatDays > 0 ? task.repeatDays : 1};
         EditText customRepeat = input("间隔天数", task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7
                 ? Integer.toString(task.repeatDays) : "", true);
-        customRepeat.setInputType(InputType.TYPE_CLASS_NUMBER);
-        customRepeat.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(3)});
-        repeatGroup.addView(customRepeat, new LinearLayout.LayoutParams(-1, dp(44)));
-        customRepeat.setVisibility(task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? View.VISIBLE : View.GONE);
-        String repeatSelected = task.repeatDays == 1 ? "每天" : task.repeatDays == 7 ? "每周"
-                : task.repeatDays > 0 ? "自定义" : "不重复";
-        fillChoices(repeatChoices, new String[]{"不重复", "每天", "每周", "自定义"}, repeatSelected, value -> {
-            repeatDays[0] = value.equals("每天") ? 1 : value.equals("每周") ? 7 : value.equals("自定义") ? -1 : 0;
-            customRepeat.setVisibility(value.equals("自定义") ? View.VISIBLE : View.GONE);
-        });
+        if (timedForm) {
+            LinearLayout repeatGroup = formGroup(form);
+            repeatGroup.addView(section("执行周期"));
+            LinearLayout repeatChoices = row();
+            repeatGroup.addView(horizontal(repeatChoices));
+            customRepeat.setInputType(InputType.TYPE_CLASS_NUMBER);
+            customRepeat.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(3)});
+            repeatGroup.addView(customRepeat, new LinearLayout.LayoutParams(-1, dp(44)));
+            customRepeat.setVisibility(repeatDays[0] == -1 ? View.VISIBLE : View.GONE);
+            String repeatSelected = repeatDays[0] == 1 ? "每天" : repeatDays[0] == 7 ? "每周" : "自定义";
+            fillChoices(repeatChoices, new String[]{"每天", "每周", "自定义"}, repeatSelected, value -> {
+                repeatDays[0] = value.equals("每天") ? 1 : value.equals("每周") ? 7 : -1;
+                customRepeat.setVisibility(value.equals("自定义") ? View.VISIBLE : View.GONE);
+            });
+        }
 
         LinearLayout reminderGroup = formGroup(form);
-        reminderGroup.addView(section("到期前提醒"));
+        reminderGroup.addView(section(timedForm ? "执行前提醒" : "到期前提醒"));
         List<Long> advances = new ArrayList<>();
         for (long timeValue : task.reminderTimes) {
             long minutes = (task.dueAt - timeValue) / 60000;
@@ -1247,7 +1313,7 @@ public final class MainActivity extends Activity {
         reminderGroup.addView(snoozeChoice, snoozeParams);
         snoozeChoice.setVisibility(snooze[0] > 0 ? View.VISIBLE : View.GONE);
         if (snooze[0] > 0) snoozeChoice.setText("稍后提醒 · " + dateTime.format(new Date(snooze[0])) + "    ×");
-        TextView hint = text("选择截止时间后设置提醒", 13, MUTED, false);
+        TextView hint = text(timedForm ? "选择执行时间后设置提醒" : "选择截止时间后设置提醒", 13, MUTED, false);
         hint.setPadding(0, dp(4), 0, 0);
         reminderGroup.addView(hint);
         Runnable refreshHint = () -> {
@@ -1269,7 +1335,8 @@ public final class MainActivity extends Activity {
             }
             int count = advances.size() + (snooze[0] > 0 ? 1 : 0);
             hint.setText(count == 0 ? "不发送提醒通知" : due[0] == 0
-                    ? "请先选择截止时间" : "已设置 " + count + " 次提醒，点击上方时间可移除");
+                    ? timedForm ? "请先选择执行时间" : "请先选择截止时间"
+                    : "已设置 " + count + " 次提醒，点击上方时间可移除");
         };
         snoozeChoice.setOnClickListener(v -> { snooze[0] = 0; snoozeChoice.setVisibility(View.GONE); refreshHint.run(); });
         reminder.setOnClickListener(v -> {
@@ -1301,24 +1368,28 @@ public final class MainActivity extends Activity {
         clear.setOnClickListener(v -> { due[0] = 0; date.setText("选择日期"); time.setText("选择时间"); refreshHint.run(); });
         refreshHint.run();
 
-        TextView save = primary("保存待办");
+        TextView save = primary(timedForm ? "保存定时任务" : "保存待办");
         LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(56));
         saveParams.topMargin = dp(12);
         root.addView(save, saveParams);
         save.setOnClickListener(v -> {
             String value = title.getText().toString().trim();
             if (value.isEmpty()) { title.setError("请输入任务标题"); return; }
-            if (due[0] > 0 && due[0] <= System.currentTimeMillis()) { toast("截止时间需晚于当前时间"); return; }
-            int interval = repeatDays[0];
+            if (due[0] > 0 && due[0] <= System.currentTimeMillis()) { toast(timedForm ? "首次执行时间需晚于当前时间" : "截止时间需晚于当前时间"); return; }
+            int interval = timedForm ? repeatDays[0] : 0;
             if (interval == -1) {
                 try { interval = Integer.parseInt(customRepeat.getText().toString()); }
                 catch (NumberFormatException error) { customRepeat.setError("请输入间隔天数"); return; }
                 if (interval < 1) { customRepeat.setError("间隔至少 1 天"); return; }
             }
-            if (interval > 0 && due[0] == 0) { toast("重复待办需设置截止时间"); return; }
-            if (!advances.isEmpty() && due[0] == 0) { toast("请先选择截止时间"); return; }
+            if (timedForm && due[0] == 0) { toast("请设置首次执行时间"); return; }
+            if (!advances.isEmpty() && due[0] == 0) { toast(timedForm ? "请先选择执行时间" : "请先选择截止时间"); return; }
             List<Long> reminderTimes = new ArrayList<>();
             for (long minutes : advances) {
+                if (timedForm && minutes >= (long) interval * 1440) {
+                    toast("提醒提前量需短于执行周期");
+                    return;
+                }
                 long timeValue = due[0] - minutes * 60000;
                 if (timeValue <= System.currentTimeMillis()) { toast("提醒时间需晚于当前时间"); return; }
                 reminderTimes.add(timeValue);
@@ -1329,6 +1400,7 @@ public final class MainActivity extends Activity {
             task.priority = chosenPriority[0];
             task.dueAt = due[0];
             task.repeatDays = interval;
+            task.timed = timedForm;
             task.reminderTimes.clear();
             task.reminderTimes.addAll(reminderTimes);
             task.remindAt = reminderTimes.isEmpty() ? 0 : Collections.min(reminderTimes);
@@ -1337,7 +1409,7 @@ public final class MainActivity extends Activity {
             ReminderScheduler.update(this, task);
             editing = false;
             showHome();
-            toast("已保存待办");
+            toast(timedForm ? "已保存定时任务" : "已保存待办");
             if (!reminderTimes.isEmpty()) askNotificationPermission();
         });
     }
@@ -1761,7 +1833,7 @@ public final class MainActivity extends Activity {
         TextView close = text("×", 24, MUTED, false);
         close.setGravity(Gravity.CENTER);
         iconRow.addView(close, new FrameLayout.LayoutParams(dp(44), dp(44), Gravity.END | Gravity.TOP));
-        TextView title = text(permanently ? "彻底删除待办？" : "删除任务？", 20, NAVY, true);
+        TextView title = text(permanently ? "彻底删除任务？" : task.timed ? "删除定时任务？" : "删除任务？", 20, NAVY, true);
         title.setGravity(Gravity.CENTER);
         title.setPadding(0, dp(3), 0, dp(4));
         content.addView(title);

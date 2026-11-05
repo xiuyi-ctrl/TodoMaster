@@ -20,12 +20,14 @@ final class ReminderScheduler {
         Intent intent = new Intent(context, ReminderReceiver.class).putExtra("task_id", task.id);
         PendingIntent pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         alarms.cancel(pending);
-        if (!task.done && !task.deleted) {
-            long next = Long.MAX_VALUE;
+        if (!task.deleted && !task.paused && (!task.done || task.timed && task.repeatDays > 0)) {
+            long next = task.timed && task.repeatDays > 0 ? task.dueAt : Long.MAX_VALUE;
             long now = System.currentTimeMillis();
-            for (long time : task.reminderTimes) if (time > now && time < next) next = time;
-            if (task.snoozeAt > now && task.snoozeAt < next) next = task.snoozeAt;
-            if (next != Long.MAX_VALUE) {
+            if (!task.done) {
+                for (long time : task.reminderTimes) if (time > now && time < next) next = time;
+                if (task.snoozeAt > now && task.snoozeAt < next) next = task.snoozeAt;
+            }
+            if (next != Long.MAX_VALUE && next > now) {
                 intent.putExtra("reminder_time", next);
                 pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 try {

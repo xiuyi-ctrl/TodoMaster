@@ -11,6 +11,10 @@ public final class BootReceiver extends BroadcastReceiver {
                 !AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED.equals(intent.getAction())) return;
         if (AlarmManager.ACTION_SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED.equals(intent.getAction())
                 && !ReminderScheduler.canScheduleExactly(context)) return;
-        for (TaskStore.Task task : new TaskStore(context).all(false)) ReminderScheduler.update(context, task);
+        TaskStore store = new TaskStore(context);
+        for (TaskStore.Task task : store.all(false)) {
+            store.advanceTimed(task);
+            ReminderScheduler.update(context, task);
+        }
     }
 }
