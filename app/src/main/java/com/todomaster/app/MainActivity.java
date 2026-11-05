@@ -12,6 +12,8 @@ import android.app.TimePickerDialog;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
+import android.database.Cursor;
+import android.provider.OpenableColumns;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -69,6 +71,7 @@ public final class MainActivity extends Activity {
     private static final long[] ADVANCE = {0, 5, 15, 60, 1440};
     private static final String SETTINGS_FILE = "xiuyi_settings";
     private static final String DATE_PICKER_MODE = "date_picker_mode";
+    private static final int PICK_REMINDER_SOUND = 2;
     private final SimpleDateFormat dateTime = new SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA);
     private final SimpleDateFormat dateOnly = new SimpleDateFormat("MM月dd日", Locale.CHINA);
     private final SimpleDateFormat timeOnly = new SimpleDateFormat("HH:mm", Locale.CHINA);
@@ -123,6 +126,28 @@ public final class MainActivity extends Activity {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == 1 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
             askExactAlarmPermission();
+    }
+
+    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != PICK_REMINDER_SOUND || resultCode != RESULT_OK || data == null || data.getData() == null) return;
+        Uri uri = data.getData();
+        try {
+            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            try (android.os.ParcelFileDescriptor file = getContentResolver().openFileDescriptor(uri, "r")) {
+                if (file == null) throw new java.io.IOException("无法读取音频");
+            }
+            String name = uri.getLastPathSegment();
+            try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
+            }
+            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
+                    .putString(ReminderSound.URI, uri.toString()).putString(ReminderSound.NAME, name).apply();
+            showSettings();
+            toast("已选择提醒声音");
+        } catch (SecurityException | java.io.IOException error) {
+            toast("无法读取音频，请重新选择");
+        }
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -203,6 +228,47 @@ public final class MainActivity extends Activity {
             alarmGroup.addView(enableExact, exactParams);
             enableExact.setOnClickListener(v -> openExactAlarmSettings());
         }
+        LinearLayout soundGroup = formGroup(content);
+        soundGroup.addView(section("提醒声音"));
+        String soundUri = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getString(ReminderSound.URI, "");
+        String soundName = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getString(ReminderSound.NAME, "");
+        TextView current = text(soundUri.isEmpty() ? "当前：系统默认提示音" : "当前：" + soundName, 14, MUTED, false);
+        current.setMaxLines(2);
+        soundGroup.addView(current);
+        TextView defaultSound = selectable("使用系统默认提示音");
+        LinearLayout.LayoutParams defaultParams = new LinearLayout.LayoutParams(-1, dp(44));
+        defaultParams.topMargin = dp(10);
+        soundGroup.addView(defaultSound, defaultParams);
+        defaultSound.setOnClickListener(v -> {
+            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
+                    .remove(ReminderSound.URI).remove(ReminderSound.NAME).apply();
+            showSettings();
+            toast("已使用系统默认提示音");
+        });
+        TextView chooseSound = primary("上传／选择本机音频");
+        LinearLayout.LayoutParams chooseParams = new LinearLayout.LayoutParams(-1, dp(46));
+        chooseParams.topMargin = dp(10);
+        soundGroup.addView(chooseSound, chooseParams);
+        chooseSound.setOnClickListener(v -> {
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            pick.addCategory(Intent.CATEGORY_OPENABLE);
+            pick.setType("audio/*");
+            pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(pick, PICK_REMINDER_SOUND);
+        });
+        TextView systemSound = selectable("打开系统通知设置");
+        LinearLayout.LayoutParams systemParams = new LinearLayout.LayoutParams(-1, dp(44));
+        systemParams.topMargin = dp(10);
+        soundGroup.addView(systemSound, systemParams);
+        systemSound.setOnClickListener(v -> {
+            Intent settingsIntent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+            startActivity(settingsIntent);
+        });
+        TextView soundHint = text("手机静音、勿扰模式或系统通知渠道静音时，提醒仍可能没有声音。", 12, MUTED, false);
+        LinearLayout.LayoutParams soundHintParams = new LinearLayout.LayoutParams(-1, -2);
+        soundHintParams.topMargin = dp(8);
+        soundGroup.addView(soundHint, soundHintParams);
     }
 
     private void addDatePickerOption(LinearLayout group, String title, String description,

@@ -1,6 +1,5 @@
 package com.todomaster.app;
 
-import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.BroadcastReceiver;
@@ -9,7 +8,6 @@ import android.content.Intent;
 import android.os.Build;
 
 public final class ReminderReceiver extends BroadcastReceiver {
-    static final String CHANNEL = "task_reminders";
     private static final String COMPLETE = "com.todomaster.app.COMPLETE";
     private static final String SNOOZE = "com.todomaster.app.SNOOZE";
 
@@ -64,13 +62,13 @@ public final class ReminderReceiver extends BroadcastReceiver {
 
     private void showNotification(Context context, NotificationManager manager, TaskStore.Task task,
                                   String title, String message, boolean canSnooze) {
-        manager.createNotificationChannel(new NotificationChannel(CHANNEL, "咻咿待办提醒", NotificationManager.IMPORTANCE_DEFAULT));
+        String channel = ReminderSound.channel(context, manager);
         Intent open = new Intent(context, MainActivity.class).putExtra("task_id", task.id).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending = PendingIntent.getActivity(context, (int) task.id, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         Intent complete = new Intent(context, ReminderReceiver.class).setAction(COMPLETE).putExtra("task_id", task.id);
         PendingIntent completePending = PendingIntent.getBroadcast(context, (int) task.id, complete,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-        android.app.Notification.Builder builder = new android.app.Notification.Builder(context, CHANNEL)
+        android.app.Notification.Builder builder = new android.app.Notification.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_cloud_notification).setContentTitle(title)
                 .setContentText(message).setContentIntent(pending).setAutoCancel(true)
                 .addAction(R.drawable.ic_cloud_notification, "完成", completePending);
