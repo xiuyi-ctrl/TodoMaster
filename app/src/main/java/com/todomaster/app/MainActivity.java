@@ -209,7 +209,7 @@ public final class MainActivity extends Activity {
                 : settingsPage.equals("sound") ? "提醒声音" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
-        header.addView(new View(this), new LinearLayout.LayoutParams(dp(48), 1));
+        header.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
         root.addView(header);
 
         ScrollView scroll = new ScrollView(this);
@@ -219,12 +219,25 @@ public final class MainActivity extends Activity {
         content.setPadding(0, dp(14), 0, dp(16));
         scroll.addView(content);
         if (settingsPage.equals("home")) {
-            addSettingsEntry(content, "日期选择方式", useWheelDatePicker() ? "滚轮选择" : "系统日期与时间弹窗", "date");
+            LinearLayout intro = row();
+            intro.setGravity(Gravity.CENTER_VERTICAL);
+            intro.setPadding(dp(14), dp(10), dp(14), dp(10));
+            intro.setBackground(shape(PALE, 18, 0));
+            intro.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
+            LinearLayout introText = column();
+            introText.setPadding(dp(10), 0, 0, 0);
+            introText.addView(text("调整你喜欢的节奏", 16, NAVY, true));
+            introText.addView(text("让每一件小事都刚刚好 ✦", 13, MUTED, false));
+            intro.addView(introText);
+            LinearLayout.LayoutParams introParams = new LinearLayout.LayoutParams(-1, -2);
+            introParams.bottomMargin = dp(18);
+            content.addView(intro, introParams);
+            addSettingsEntry(content, "日期选择方式", useWheelDatePicker() ? "滚轮选择" : "系统日期与时间弹窗", "date", R.drawable.ic_calendar);
             addSettingsEntry(content, "精准提醒", ReminderScheduler.preciseEnabled(this)
-                    ? ReminderScheduler.canScheduleExactly(this) ? "已开启" : "未获系统授权" : "已关闭", "exact");
+                    ? ReminderScheduler.canScheduleExactly(this) ? "已开启" : "未获系统授权" : "已关闭", "exact", R.drawable.ic_bell);
             String mode = ReminderSound.mode(this);
             addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
-                    : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound");
+                    : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound", R.drawable.ic_settings);
             return;
         }
         if (settingsPage.equals("date")) {
@@ -361,14 +374,38 @@ public final class MainActivity extends Activity {
         }
     }
 
-    private void addSettingsEntry(LinearLayout content, String title, String summary, String page) {
-        LinearLayout group = formGroup(content);
-        TextView label = text(title + "    ›", 17, NAVY, true);
-        group.addView(label);
+    private void addSettingsEntry(LinearLayout content, String title, String summary, String page, int iconResource) {
+        LinearLayout card = row();
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        card.setMinimumHeight(dp(76));
+        card.setPadding(dp(14), dp(10), dp(14), dp(10));
+        GradientDrawable background = new GradientDrawable(GradientDrawable.Orientation.TL_BR,
+                new int[]{Color.WHITE, Color.rgb(255, 250, 254)});
+        background.setCornerRadius(dp(18));
+        background.setStroke(dp(1), Color.rgb(232, 222, 239));
+        card.setBackground(background);
+        card.setElevation(dp(2));
+        FrameLayout iconBox = new FrameLayout(this);
+        iconBox.setBackground(shape(PALE, 14, 0));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconResource);
+        icon.setColorFilter(VIOLET);
+        iconBox.addView(icon, new FrameLayout.LayoutParams(dp(22), dp(22), Gravity.CENTER));
+        card.addView(iconBox, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        LinearLayout labels = column();
+        labels.setPadding(dp(12), 0, dp(6), 0);
+        labels.addView(text(title, 16, NAVY, true));
         TextView detail = text(summary, 13, MUTED, false);
-        detail.setPadding(0, dp(6), 0, dp(6));
-        group.addView(detail);
-        group.setOnClickListener(v -> { settingsPage = page; showSettingsPage(); });
+        detail.setPadding(0, dp(3), 0, 0);
+        labels.addView(detail);
+        card.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView chevron = text("›", 28, VIOLET, false);
+        chevron.setGravity(Gravity.CENTER);
+        card.addView(chevron, new LinearLayout.LayoutParams(dp(30), dp(44)));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(12);
+        content.addView(card, params);
+        card.setOnClickListener(v -> { settingsPage = page; showSettingsPage(); });
     }
 
     private void addDatePickerOption(LinearLayout group, String title, String description,
