@@ -71,8 +71,8 @@ public final class MainActivity extends Activity {
     private static final String[] SEARCH_STATUSES = {"全部", "未完成", "已完成"};
     private static final String[] SEARCH_PRIORITIES = {"全部", "高", "中", "低"};
     private static final String[] SEARCH_TIMES = {"全部", "已逾期", "今天", "未来7天", "无截止"};
-    private static final String[] REMINDERS = {"不提醒", "5分钟", "15分钟", "1小时", "1天"};
-    private static final long[] ADVANCE = {0, 5, 15, 60, 1440};
+    private static final String[] REMINDERS = {"不提醒", "5分钟", "15分钟", "30分钟", "1小时", "1天"};
+    private static final long[] ADVANCE = {0, 5, 15, 30, 60, 1440};
     private static final String SETTINGS_FILE = "xiuyi_settings";
     private static final String DATE_PICKER_MODE = "date_picker_mode";
     private static final int PICK_REMINDER_SOUND = 2;
@@ -1340,22 +1340,10 @@ public final class MainActivity extends Activity {
         };
         snoozeChoice.setOnClickListener(v -> { snooze[0] = 0; snoozeChoice.setVisibility(View.GONE); refreshHint.run(); });
         reminder.setOnClickListener(v -> {
-            String[] labels = {REMINDERS[1], REMINDERS[2], REMINDERS[3], REMINDERS[4], "自定义…"};
-            int[] icons = {R.drawable.ic_bell, R.drawable.ic_bell, R.drawable.ic_bell,
-                    R.drawable.ic_bell, R.drawable.ic_pencil};
-            Runnable[] actions = new Runnable[labels.length];
-            for (int i = 0; i < 4; i++) {
-                long minutes = ADVANCE[i + 1];
-                actions[i] = () -> {
-                    if (!advances.contains(minutes)) advances.add(minutes);
-                    refreshHint.run();
-                };
-            }
-            actions[4] = () -> chooseCustomReminder(0, minutes -> {
+            showReminderChoices(minutes -> {
                 if (!advances.contains(minutes)) advances.add(minutes);
                 refreshHint.run();
             });
-            showChoiceMenu(reminder, 168, labels, icons, actions);
         });
         date.setOnClickListener(v -> {
             if (useWheelDatePicker()) pickDueDateTime(due, date, time, refreshHint);
@@ -1457,6 +1445,54 @@ public final class MainActivity extends Activity {
 
     private interface AdvanceListener { void selected(long minutes); }
 
+    private void showReminderChoices(AdvanceListener listener) {
+        LinearLayout content = column();
+        content.setPadding(dp(18), dp(18), dp(18), dp(18));
+        content.setBackground(shape(Color.WHITE, 20, Color.rgb(238, 225, 245)));
+        TextView heading = text("添加提醒时间", 20, NAVY, true);
+        heading.setGravity(Gravity.CENTER);
+        content.addView(heading);
+        TextView hint = text("可选择多个提前提醒时间", 13, MUTED, false);
+        hint.setGravity(Gravity.CENTER);
+        LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+        hintParams.topMargin = dp(4);
+        hintParams.bottomMargin = dp(12);
+        content.addView(hint, hintParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(true);
+        LinearLayout options = column();
+        scroll.addView(options);
+        int availableHeight = getResources().getDisplayMetrics().heightPixels - dp(220);
+        content.addView(scroll, new LinearLayout.LayoutParams(-1, Math.max(dp(120), Math.min(dp(260), availableHeight))));
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
+        for (int i = 1; i <= ADVANCE.length; i++) {
+            boolean custom = i == ADVANCE.length;
+            long minutes = custom ? 0 : ADVANCE[i];
+            LinearLayout option = row();
+            option.setGravity(Gravity.CENTER_VERTICAL);
+            option.setPadding(dp(14), 0, dp(14), 0);
+            option.setBackground(shape(PALE, 12, 0));
+            ImageView icon = new ImageView(this);
+            icon.setImageResource(custom ? R.drawable.ic_pencil : R.drawable.ic_bell);
+            icon.setColorFilter(VIOLET);
+            option.addView(icon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            TextView label = text(custom ? "自定义选择…" : REMINDERS[i], 15, NAVY, false);
+            label.setPadding(dp(12), 0, 0, 0);
+            option.addView(label);
+            LinearLayout.LayoutParams optionParams = new LinearLayout.LayoutParams(-1, dp(46));
+            optionParams.bottomMargin = dp(6);
+            options.addView(option, optionParams);
+            option.setOnClickListener(v -> {
+                dialog.dismiss();
+                if (custom) chooseCustomReminder(0, listener);
+                else listener.selected(minutes);
+            });
+        }
+        dialog.show();
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        dialog.getWindow().setLayout(getResources().getDisplayMetrics().widthPixels - dp(32), -2);
+    }
+
     private void chooseCustomReminder(long initial, AdvanceListener listener) {
         LinearLayout content = column();
         content.setPadding(dp(20), dp(18), dp(20), dp(18));
@@ -1464,7 +1500,7 @@ public final class MainActivity extends Activity {
         TextView heading = text("自定义提醒时间", 20, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         content.addView(heading);
-        TextView explanation = text("设置在截止时间前多久提醒", 13, MUTED, false);
+        TextView explanation = text("设置提前多久提醒", 13, MUTED, false);
         explanation.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams explanationParams = new LinearLayout.LayoutParams(-1, -2);
         explanationParams.topMargin = dp(6);
