@@ -1223,8 +1223,10 @@ public final class MainActivity extends Activity {
             dates[i] = pickerDate.format(cursor.getTime());
             cursor.add(Calendar.DAY_OF_YEAR, 1);
         }
-        String[] times = new String[1440];
-        for (int i = 0; i < times.length; i++) times[i] = String.format(Locale.CHINA, "%02d:%02d", i / 60, i % 60);
+        String[] hours = new String[24];
+        String[] minutes = new String[60];
+        for (int i = 0; i < hours.length; i++) hours[i] = String.format(Locale.CHINA, "%02d", i);
+        for (int i = 0; i < minutes.length; i++) minutes[i] = String.format(Locale.CHINA, "%02d", i);
         Calendar chosen = Calendar.getInstance();
         if (due[0] > 0) chosen.setTimeInMillis(due[0]);
         else { chosen.set(Calendar.HOUR_OF_DAY, 18); chosen.set(Calendar.MINUTE, 0); }
@@ -1248,8 +1250,15 @@ public final class MainActivity extends Activity {
         close.setGravity(Gravity.CENTER);
         heading.addView(close, new FrameLayout.LayoutParams(dp(44), -1, Gravity.END));
         LinearLayout labels = row();
-        labels.addView(iconLabel("日期", R.drawable.ic_calendar), new LinearLayout.LayoutParams(0, dp(36), 1));
-        labels.addView(iconLabel("时间", R.drawable.ic_clock), new LinearLayout.LayoutParams(0, dp(36), 1));
+        TextView dayLabel = text("日期", 13, MUTED, true);
+        dayLabel.setGravity(Gravity.CENTER);
+        labels.addView(dayLabel, new LinearLayout.LayoutParams(0, dp(36), 1.25f));
+        TextView hourLabel = text("小时", 13, MUTED, true);
+        hourLabel.setGravity(Gravity.CENTER);
+        labels.addView(hourLabel, new LinearLayout.LayoutParams(0, dp(36), .6f));
+        TextView minuteLabel = text("分钟", 13, MUTED, true);
+        minuteLabel.setGravity(Gravity.CENTER);
+        labels.addView(minuteLabel, new LinearLayout.LayoutParams(0, dp(36), .6f));
         content.addView(labels);
         LinearLayout wheels = row();
         content.addView(wheels);
@@ -1260,22 +1269,29 @@ public final class MainActivity extends Activity {
         dayWheel.setValue(selectedDay);
         dayWheel.setWrapSelectorWheel(false);
         dayWheel.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
-        NumberPicker timeWheel = new NumberPicker(this);
-        timeWheel.setMinValue(0);
-        timeWheel.setMaxValue(times.length - 1);
-        timeWheel.setDisplayedValues(times);
-        timeWheel.setValue(chosen.get(Calendar.HOUR_OF_DAY) * 60 + chosen.get(Calendar.MINUTE));
-        timeWheel.setWrapSelectorWheel(false);
-        timeWheel.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
+        NumberPicker hourWheel = new NumberPicker(this);
+        hourWheel.setMinValue(0);
+        hourWheel.setMaxValue(hours.length - 1);
+        hourWheel.setDisplayedValues(hours);
+        hourWheel.setValue(chosen.get(Calendar.HOUR_OF_DAY));
+        hourWheel.setWrapSelectorWheel(true);
+        hourWheel.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
+        NumberPicker minuteWheel = new NumberPicker(this);
+        minuteWheel.setMinValue(0);
+        minuteWheel.setMaxValue(minutes.length - 1);
+        minuteWheel.setDisplayedValues(minutes);
+        minuteWheel.setValue(chosen.get(Calendar.MINUTE));
+        minuteWheel.setWrapSelectorWheel(true);
+        minuteWheel.setDescendantFocusability(NumberPicker.FOCUS_BLOCK_DESCENDANTS);
         if (Build.VERSION.SDK_INT >= 29) {
             dayWheel.setTextColor(NAVY);
-            timeWheel.setTextColor(NAVY);
+            hourWheel.setTextColor(NAVY);
+            minuteWheel.setTextColor(NAVY);
         }
-        LinearLayout.LayoutParams wheelParams = new LinearLayout.LayoutParams(0, dp(180), 1.35f);
+        LinearLayout.LayoutParams wheelParams = new LinearLayout.LayoutParams(0, dp(180), 1.25f);
         wheels.addView(dayWheel, wheelParams);
-        LinearLayout.LayoutParams timeParams = new LinearLayout.LayoutParams(0, dp(180), .65f);
-        timeParams.leftMargin = dp(8);
-        wheels.addView(timeWheel, timeParams);
+        wheels.addView(hourWheel, new LinearLayout.LayoutParams(0, dp(180), .6f));
+        wheels.addView(minuteWheel, new LinearLayout.LayoutParams(0, dp(180), .6f));
         TextView confirm = primary("确定");
         LinearLayout.LayoutParams confirmParams = new LinearLayout.LayoutParams(-1, dp(50));
         confirmParams.topMargin = dp(16);
@@ -1288,8 +1304,8 @@ public final class MainActivity extends Activity {
         confirm.setOnClickListener(v -> {
             Calendar value = (Calendar) first.clone();
             value.add(Calendar.DAY_OF_YEAR, dayWheel.getValue());
-            value.set(Calendar.HOUR_OF_DAY, timeWheel.getValue() / 60);
-            value.set(Calendar.MINUTE, timeWheel.getValue() % 60);
+            value.set(Calendar.HOUR_OF_DAY, hourWheel.getValue());
+            value.set(Calendar.MINUTE, minuteWheel.getValue());
             due[0] = value.getTimeInMillis();
             date.setText(dateOnly.format(new Date(due[0])));
             time.setText(timeOnly.format(new Date(due[0])));
