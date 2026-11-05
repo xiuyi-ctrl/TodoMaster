@@ -95,6 +95,7 @@ public final class MainActivity extends Activity {
     private boolean trash;
     private boolean searching;
     private boolean settings;
+    private String settingsPage = "home";
     private boolean editing;
     private ValueAnimator taskAnimator;
     private ValueAnimator filterColorAnimator;
@@ -123,7 +124,7 @@ public final class MainActivity extends Activity {
         if (allowed != exactAlarmAllowed) {
             exactAlarmAllowed = allowed;
             for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
-            if (settings) showSettings();
+            if (settings) showSettingsPage();
         }
     }
 
@@ -146,7 +147,7 @@ public final class MainActivity extends Activity {
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
                     .putString(ReminderSound.URI, saved.toString()).putString(ReminderSound.NAME, name)
                     .putString(ReminderSound.MODE, "custom").apply();
-            showSettings();
+            showSettingsPage();
             toast("已选择提醒声音");
         } catch (SecurityException | java.io.IOException error) {
             toast("无法读取音频，请重新选择");
@@ -163,7 +164,7 @@ public final class MainActivity extends Activity {
         if (editing) { editing = false; showHome(); }
         else if (trash) { trash = false; showHome(); }
         else if (searching) { searching = false; query = ""; showHome(); }
-        else if (settings) showHome();
+        else if (settings) { if (settingsPage.equals("home")) showHome(); else showSettings(); }
         else super.onBackPressed();
     }
 
@@ -182,6 +183,11 @@ public final class MainActivity extends Activity {
     }
 
     private void showSettings() {
+        settingsPage = "home";
+        showSettingsPage();
+    }
+
+    private void showSettingsPage() {
         cancelTaskAnimation();
         filterTransitionToken++;
         if (filterColorAnimator != null) filterColorAnimator.cancel();
@@ -197,8 +203,10 @@ public final class MainActivity extends Activity {
         TextView back = text("‹", 34, NAVY, false);
         back.setGravity(Gravity.CENTER);
         header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(52)));
-        back.setOnClickListener(v -> showHome());
-        TextView heading = text("设置", 23, NAVY, true);
+        back.setOnClickListener(v -> { if (settingsPage.equals("home")) showHome(); else showSettings(); });
+        TextView heading = text(settingsPage.equals("date") ? "日期选择方式"
+                : settingsPage.equals("exact") ? "精准提醒"
+                : settingsPage.equals("sound") ? "提醒声音" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
         header.addView(new View(this), new LinearLayout.LayoutParams(dp(48), 1));
@@ -210,6 +218,16 @@ public final class MainActivity extends Activity {
         LinearLayout content = column();
         content.setPadding(0, dp(14), 0, dp(16));
         scroll.addView(content);
+        if (settingsPage.equals("home")) {
+            addSettingsEntry(content, "日期选择方式", useWheelDatePicker() ? "滚轮选择" : "系统日期与时间弹窗", "date");
+            addSettingsEntry(content, "精准提醒", ReminderScheduler.preciseEnabled(this)
+                    ? ReminderScheduler.canScheduleExactly(this) ? "已开启" : "未获系统授权" : "已关闭", "exact");
+            String mode = ReminderSound.mode(this);
+            addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
+                    : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound");
+            return;
+        }
+        if (settingsPage.equals("date")) {
         LinearLayout group = formGroup(content);
         group.addView(section("日期选择方式"));
         TextView description = text("新建和编辑待办时使用，选择会自动保存。", 13, MUTED, false);
@@ -219,18 +237,34 @@ public final class MainActivity extends Activity {
         boolean wheel = useWheelDatePicker();
         addDatePickerOption(group, "滚轮选择", "同时选择日期和具体分钟", wheel, "wheel");
         addDatePickerOption(group, "系统日期与时间弹窗", "先选日期，再选时间", !wheel, "system");
+        }
+        if (settingsPage.equals("exact")) {
         LinearLayout alarmGroup = formGroup(content);
         alarmGroup.addView(section("精准提醒"));
         boolean exact = ReminderScheduler.canScheduleExactly(this);
-        TextView status = text(exact ? "已开启：尽量按设定时间提醒" : "未开启：系统可能延后提醒", 14, MUTED, false);
+        boolean enabled = ReminderScheduler.preciseEnabled(this);
+        TextView status = text(enabled ? exact ? "已开启：尽量按设定时间提醒" : "系统尚未授权，暂使用普通提醒"
+                : "已关闭：使用普通提醒", 14, MUTED, false);
         alarmGroup.addView(status);
-        if (!exact) {
-            TextView enableExact = primary("开启精准提醒");
+        TextView toggle = primary(enabled ? "关闭精准提醒" : "开启精准提醒");
+        LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(-1, dp(46));
+        toggleParams.topMargin = dp(12);
+        alarmGroup.addView(toggle, toggleParams);
+        toggle.setOnClickListener(v -> {
+            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putBoolean("precise_reminders", !enabled).apply();
+            for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
+            showSettingsPage();
+            if (!enabled && !exact) openExactAlarmSettings();
+        });
+        if (enabled && !exact) {
+            TextView enableExact = selectable("前往系统授权");
             LinearLayout.LayoutParams exactParams = new LinearLayout.LayoutParams(-1, dp(46));
             exactParams.topMargin = dp(12);
             alarmGroup.addView(enableExact, exactParams);
             enableExact.setOnClickListener(v -> openExactAlarmSettings());
         }
+        }
+        if (settingsPage.equals("sound")) {
         LinearLayout soundGroup = formGroup(content);
         soundGroup.addView(section("提醒声音"));
         String soundMode = ReminderSound.mode(this);
@@ -245,7 +279,7 @@ public final class MainActivity extends Activity {
         soundGroup.addView(builtInSound, builtInParams);
         builtInSound.setOnClickListener(v -> {
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putString(ReminderSound.MODE, "built_in").apply();
-            showSettings();
+            showSettingsPage();
             toast("已使用咻咿提示音");
         });
         TextView defaultSound = selectable("使用系统默认提示音");
@@ -258,7 +292,7 @@ public final class MainActivity extends Activity {
                 return;
             }
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putString(ReminderSound.MODE, "system").apply();
-            showSettings();
+            showSettingsPage();
             toast("已使用系统默认提示音");
         });
         TextView chooseSound = primary("上传／选择本机音频");
@@ -324,6 +358,17 @@ public final class MainActivity extends Activity {
         LinearLayout.LayoutParams soundHintParams = new LinearLayout.LayoutParams(-1, -2);
         soundHintParams.topMargin = dp(8);
         soundGroup.addView(soundHint, soundHintParams);
+        }
+    }
+
+    private void addSettingsEntry(LinearLayout content, String title, String summary, String page) {
+        LinearLayout group = formGroup(content);
+        TextView label = text(title + "    ›", 17, NAVY, true);
+        group.addView(label);
+        TextView detail = text(summary, 13, MUTED, false);
+        detail.setPadding(0, dp(6), 0, dp(6));
+        group.addView(detail);
+        group.setOnClickListener(v -> { settingsPage = page; showSettingsPage(); });
     }
 
     private void addDatePickerOption(LinearLayout group, String title, String description,
@@ -347,7 +392,7 @@ public final class MainActivity extends Activity {
         option.setOnClickListener(v -> {
             if (selected) return;
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putString(DATE_PICKER_MODE, mode).apply();
-            showSettings();
+            showSettingsPage();
             toast("已切换为" + title);
         });
     }
@@ -1773,7 +1818,7 @@ public final class MainActivity extends Activity {
         });
     }
     private void askExactAlarmPermission() {
-        if (ReminderScheduler.canScheduleExactly(this) ||
+        if (!ReminderScheduler.preciseEnabled(this) || ReminderScheduler.canScheduleExactly(this) ||
                 getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getBoolean("exact_prompted", false)) return;
         getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putBoolean("exact_prompted", true).apply();
         LinearLayout content = column();

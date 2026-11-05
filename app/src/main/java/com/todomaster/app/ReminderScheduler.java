@@ -11,6 +11,10 @@ final class ReminderScheduler {
         return Build.VERSION.SDK_INT < 31 || ((AlarmManager) context.getSystemService(Context.ALARM_SERVICE)).canScheduleExactAlarms();
     }
 
+    static boolean preciseEnabled(Context context) {
+        return context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).getBoolean("precise_reminders", true);
+    }
+
     static void update(Context context, TaskStore.Task task) {
         AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         Intent intent = new Intent(context, ReminderReceiver.class).putExtra("task_id", task.id);
@@ -25,7 +29,7 @@ final class ReminderScheduler {
                 intent.putExtra("reminder_time", next);
                 pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 try {
-                    if (canScheduleExactly(context)) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
+                    if (preciseEnabled(context) && canScheduleExactly(context)) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
                     else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
                 } catch (SecurityException denied) {
                     alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
