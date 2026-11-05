@@ -7,6 +7,7 @@ import android.animation.ValueAnimator;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.NotificationManager;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.Intent;
@@ -18,6 +19,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
+import android.media.Ringtone;
+import android.media.RingtoneManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.provider.Settings;
@@ -142,7 +145,8 @@ public final class MainActivity extends Activity {
                 if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
             }
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
-                    .putString(ReminderSound.URI, uri.toString()).putString(ReminderSound.NAME, name).apply();
+                    .putString(ReminderSound.URI, uri.toString()).putString(ReminderSound.NAME, name)
+                    .putString(ReminderSound.MODE, "custom").apply();
             showSettings();
             toast("已选择提醒声音");
         } catch (SecurityException | java.io.IOException error) {
@@ -230,18 +234,31 @@ public final class MainActivity extends Activity {
         }
         LinearLayout soundGroup = formGroup(content);
         soundGroup.addView(section("提醒声音"));
-        String soundUri = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getString(ReminderSound.URI, "");
+        String soundMode = ReminderSound.mode(this);
         String soundName = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getString(ReminderSound.NAME, "");
-        TextView current = text(soundUri.isEmpty() ? "当前：系统默认提示音" : "当前：" + soundName, 14, MUTED, false);
+        TextView current = text("当前：" + ("custom".equals(soundMode) ? soundName
+                : "system".equals(soundMode) ? "系统默认提示音" : "咻咿提示音"), 14, MUTED, false);
         current.setMaxLines(2);
         soundGroup.addView(current);
+        TextView builtInSound = selectable("使用咻咿提示音（推荐）");
+        LinearLayout.LayoutParams builtInParams = new LinearLayout.LayoutParams(-1, dp(44));
+        builtInParams.topMargin = dp(10);
+        soundGroup.addView(builtInSound, builtInParams);
+        builtInSound.setOnClickListener(v -> {
+            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putString(ReminderSound.MODE, "built_in").apply();
+            showSettings();
+            toast("已使用咻咿提示音");
+        });
         TextView defaultSound = selectable("使用系统默认提示音");
         LinearLayout.LayoutParams defaultParams = new LinearLayout.LayoutParams(-1, dp(44));
         defaultParams.topMargin = dp(10);
         soundGroup.addView(defaultSound, defaultParams);
         defaultSound.setOnClickListener(v -> {
-            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
-                    .remove(ReminderSound.URI).remove(ReminderSound.NAME).apply();
+            if (RingtoneManager.getActualDefaultRingtoneUri(this, RingtoneManager.TYPE_NOTIFICATION) == null) {
+                toast("系统未设置默认提示音，请使用咻咿提示音");
+                return;
+            }
+            getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putString(ReminderSound.MODE, "system").apply();
             showSettings();
             toast("已使用系统默认提示音");
         });
@@ -255,6 +272,39 @@ public final class MainActivity extends Activity {
             pick.setType("audio/*");
             pick.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
             startActivityForResult(pick, PICK_REMINDER_SOUND);
+        });
+        TextView previewSound = selectable("试听当前声音");
+        LinearLayout.LayoutParams previewParams = new LinearLayout.LayoutParams(-1, dp(44));
+        previewParams.topMargin = dp(10);
+        soundGroup.addView(previewSound, previewParams);
+        previewSound.setOnClickListener(v -> {
+            try {
+                Ringtone ringtone = RingtoneManager.getRingtone(this, ReminderSound.sound(this));
+                if (ringtone == null) { toast("当前声音无法播放，请换一个提示音"); return; }
+                ringtone.play();
+                previewSound.postDelayed(ringtone::stop, 3000);
+            } catch (RuntimeException error) { toast("当前声音无法播放，请换一个提示音"); }
+        });
+        TextView testSound = selectable("发送测试提醒");
+        LinearLayout.LayoutParams testParams = new LinearLayout.LayoutParams(-1, dp(44));
+        testParams.topMargin = dp(8);
+        soundGroup.addView(testSound, testParams);
+        testSound.setOnClickListener(v -> {
+            if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    != PackageManager.PERMISSION_GRANTED) {
+                requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+                return;
+            }
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            String channel = ReminderSound.channel(this, manager);
+            manager.cancel(987654);
+            try {
+                manager.notify(987654, new android.app.Notification.Builder(this, channel)
+                        .setSmallIcon(R.drawable.ic_cloud_notification)
+                        .setContentTitle("咻咿待办测试提醒")
+                        .setContentText("如果听不到声音，请检查系统通知设置和静音模式。")
+                        .setAutoCancel(true).build());
+            } catch (SecurityException error) { toast("请在系统设置中允许通知"); }
         });
         TextView systemSound = selectable("打开系统通知设置");
         LinearLayout.LayoutParams systemParams = new LinearLayout.LayoutParams(-1, dp(44));
