@@ -11,17 +11,17 @@ import java.util.Calendar;
 
 final class TaskStore extends SQLiteOpenHelper {
     static final class Task {
-        long id, dueAt, remindAt, deletedAt, createdAt;
+        long id, dueAt, remindAt, snoozeAt, deletedAt, createdAt;
         int repeatDays;
         final List<Long> reminderTimes = new ArrayList<>();
         String title, note, category, priority;
         boolean done, deleted;
     }
 
-    TaskStore(Context context) { super(context, "tasks.db", null, 5); }
+    TaskStore(Context context) { super(context, "tasks.db", null, 6); }
 
     @Override public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', repeat_days INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', snooze_at INTEGER NOT NULL DEFAULT 0, repeat_days INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
     }
 
     @Override public void onUpgrade(SQLiteDatabase db, int oldVersion, int newVersion) {
@@ -32,6 +32,7 @@ final class TaskStore extends SQLiteOpenHelper {
         }
         if (oldVersion < 4) db.execSQL("ALTER TABLE tasks ADD COLUMN reminder_times TEXT NOT NULL DEFAULT ''");
         if (oldVersion < 5) db.execSQL("ALTER TABLE tasks ADD COLUMN repeat_days INTEGER NOT NULL DEFAULT 0");
+        if (oldVersion < 6) db.execSQL("ALTER TABLE tasks ADD COLUMN snooze_at INTEGER NOT NULL DEFAULT 0");
     }
 
     long save(Task task) {
@@ -49,6 +50,7 @@ final class TaskStore extends SQLiteOpenHelper {
             times.append(time);
         }
         values.put("reminder_times", times.toString());
+        values.put("snooze_at", task.snoozeAt);
         values.put("repeat_days", task.repeatDays);
         values.put("done", task.done ? 1 : 0);
         values.put("deleted", task.deleted ? 1 : 0);
@@ -124,10 +126,16 @@ final class TaskStore extends SQLiteOpenHelper {
         t.priority = c.getString(c.getColumnIndexOrThrow("priority"));
         t.dueAt = c.getLong(c.getColumnIndexOrThrow("due_at"));
         t.remindAt = c.getLong(c.getColumnIndexOrThrow("remind_at"));
+        t.snoozeAt = c.getLong(c.getColumnIndexOrThrow("snooze_at"));
         String times = c.getString(c.getColumnIndexOrThrow("reminder_times"));
         if (!times.isEmpty()) {
             for (String value : times.split(",")) t.reminderTimes.add(Long.parseLong(value));
         } else if (t.remindAt > 0) t.reminderTimes.add(t.remindAt);
+        if (t.dueAt > 0) {
+            t.reminderTimes.removeIf(time -> time >= t.dueAt);
+            t.remindAt = t.reminderTimes.isEmpty() ? 0 : java.util.Collections.min(t.reminderTimes);
+            if (t.snoozeAt >= t.dueAt) t.snoozeAt = 0;
+        }
         t.done = c.getInt(c.getColumnIndexOrThrow("done")) != 0;
         t.deleted = c.getInt(c.getColumnIndexOrThrow("deleted")) != 0;
         t.deletedAt = c.getLong(c.getColumnIndexOrThrow("deleted_at"));

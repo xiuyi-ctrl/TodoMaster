@@ -15,6 +15,7 @@ final class ReminderScheduler {
             long next = Long.MAX_VALUE;
             long now = System.currentTimeMillis();
             for (long time : task.reminderTimes) if (time > now && time < next) next = time;
+            if (task.snoozeAt > now && task.snoozeAt < next) next = task.snoozeAt;
             if (next != Long.MAX_VALUE) {
                 intent.putExtra("reminder_time", next);
                 pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

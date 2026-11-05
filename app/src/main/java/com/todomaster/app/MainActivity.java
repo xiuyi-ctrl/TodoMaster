@@ -617,7 +617,7 @@ public final class MainActivity extends Activity {
         }
         if (task.dueAt > 0) {
             String due = task.dueAt < System.currentTimeMillis() && !task.done ? "已逾期 " : shortDue(task.dueAt);
-            if (!task.done && task.remindAt > 0) card.addView(compactMeta(due, reminderLabel(task)));
+            if (!task.done && (task.remindAt > 0 || task.snoozeAt > System.currentTimeMillis())) card.addView(compactMeta(due, reminderLabel(task)));
             else card.addView(meta(R.drawable.ic_calendar, due, false));
         }
         if (task.remindAt > 0 && !task.done && task.dueAt == 0) card.addView(meta(R.drawable.ic_bell, reminderLabel(task), false));
@@ -848,7 +848,9 @@ public final class MainActivity extends Activity {
     }
 
     private String reminderLabel(TaskStore.Task task) {
-        if (task.reminderTimes.size() > 1) return task.reminderTimes.size() + "次提醒";
+        int count = task.reminderTimes.size() + (task.snoozeAt > System.currentTimeMillis() ? 1 : 0);
+        if (count > 1) return count + "次提醒";
+        if (task.snoozeAt > System.currentTimeMillis()) return "稍后 " + timeOnly.format(new Date(task.snoozeAt));
         long minutes = (task.dueAt - task.remindAt) / 60000;
         for (int i = 1; i < ADVANCE.length; i++) if (ADVANCE[i] == minutes) return "提前" + REMINDERS[i];
         return minutes > 0 ? "提前" + advanceLabel(minutes) : "提醒我";
@@ -999,6 +1001,16 @@ public final class MainActivity extends Activity {
         reminderGroup.addView(reminder, new LinearLayout.LayoutParams(-1, dp(40)));
         LinearLayout selectedReminders = column();
         reminderGroup.addView(selectedReminders);
+        long[] snooze = {task.snoozeAt > System.currentTimeMillis() ? task.snoozeAt : 0};
+        TextView snoozeChoice = text("", 13, VIOLET, false);
+        snoozeChoice.setGravity(Gravity.CENTER_VERTICAL);
+        snoozeChoice.setPadding(dp(12), 0, dp(12), 0);
+        snoozeChoice.setBackground(shape(PALE, 12, 0));
+        LinearLayout.LayoutParams snoozeParams = new LinearLayout.LayoutParams(-1, dp(36));
+        snoozeParams.topMargin = dp(6);
+        reminderGroup.addView(snoozeChoice, snoozeParams);
+        snoozeChoice.setVisibility(snooze[0] > 0 ? View.VISIBLE : View.GONE);
+        if (snooze[0] > 0) snoozeChoice.setText("稍后提醒 · " + dateTime.format(new Date(snooze[0])) + "    ×");
         TextView hint = text("选择截止时间后设置提醒", 13, MUTED, false);
         hint.setPadding(0, dp(4), 0, 0);
         reminderGroup.addView(hint);
@@ -1015,12 +1027,15 @@ public final class MainActivity extends Activity {
                 selected.setOnClickListener(view -> {
                     advances.remove(minutes);
                     selectedReminders.removeView(selected);
-                    hint.setText(advances.isEmpty() ? "不发送提醒通知" : "已设置 " + advances.size() + " 次提醒，点击上方时间可移除");
+                    int count = advances.size() + (snooze[0] > 0 ? 1 : 0);
+                    hint.setText(count == 0 ? "不发送提醒通知" : "已设置 " + count + " 次提醒，点击上方时间可移除");
                 });
             }
-            hint.setText(advances.isEmpty() ? "不发送提醒通知" : due[0] == 0
-                    ? "请先选择截止时间" : "已设置 " + advances.size() + " 次提醒，点击上方时间可移除");
+            int count = advances.size() + (snooze[0] > 0 ? 1 : 0);
+            hint.setText(count == 0 ? "不发送提醒通知" : due[0] == 0
+                    ? "请先选择截止时间" : "已设置 " + count + " 次提醒，点击上方时间可移除");
         };
+        snoozeChoice.setOnClickListener(v -> { snooze[0] = 0; snoozeChoice.setVisibility(View.GONE); refreshHint.run(); });
         reminder.setOnClickListener(v -> {
             String[] labels = {REMINDERS[1], REMINDERS[2], REMINDERS[3], REMINDERS[4], "自定义…"};
             int[] icons = {R.drawable.ic_bell, R.drawable.ic_bell, R.drawable.ic_bell,
@@ -1081,6 +1096,7 @@ public final class MainActivity extends Activity {
             task.reminderTimes.clear();
             task.reminderTimes.addAll(reminderTimes);
             task.remindAt = reminderTimes.isEmpty() ? 0 : Collections.min(reminderTimes);
+            task.snoozeAt = snooze[0] > 0 && snooze[0] < due[0] ? snooze[0] : 0;
             store.save(task);
             ReminderScheduler.update(this, task);
             editing = false;
