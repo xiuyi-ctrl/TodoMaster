@@ -15,8 +15,10 @@ import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
 import android.text.TextUtils;
@@ -91,17 +93,36 @@ public final class MainActivity extends Activity {
     private ValueAnimator filterColorAnimator;
     private int taskTransitionToken;
     private int filterTransitionToken;
+    private boolean exactAlarmAllowed;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new TaskStore(this);
+        exactAlarmAllowed = ReminderScheduler.canScheduleExactly(this);
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
         getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LIGHT_STATUS_BAR | View.SYSTEM_UI_FLAG_LIGHT_NAVIGATION_BAR);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         if (Build.VERSION.SDK_INT >= 30) getWindow().setDecorFitsSystemWindows(false);
         showHome();
+        for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
         openFromNotification(getIntent());
+    }
+
+    @Override protected void onResume() {
+        super.onResume();
+        boolean allowed = ReminderScheduler.canScheduleExactly(this);
+        if (allowed != exactAlarmAllowed) {
+            exactAlarmAllowed = allowed;
+            for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
+            if (settings) showSettings();
+        }
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
+        super.onRequestPermissionsResult(requestCode, permissions, results);
+        if (requestCode == 1 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
+            askExactAlarmPermission();
     }
 
     @Override protected void onNewIntent(Intent intent) {
@@ -170,6 +191,18 @@ public final class MainActivity extends Activity {
         boolean wheel = useWheelDatePicker();
         addDatePickerOption(group, "滚轮选择", "同时选择日期和具体分钟", wheel, "wheel");
         addDatePickerOption(group, "系统日期与时间弹窗", "先选日期，再选时间", !wheel, "system");
+        LinearLayout alarmGroup = formGroup(content);
+        alarmGroup.addView(section("精准提醒"));
+        boolean exact = ReminderScheduler.canScheduleExactly(this);
+        TextView status = text(exact ? "已开启：尽量按设定时间提醒" : "未开启：系统可能延后提醒", 14, MUTED, false);
+        alarmGroup.addView(status);
+        if (!exact) {
+            TextView enableExact = primary("开启精准提醒");
+            LinearLayout.LayoutParams exactParams = new LinearLayout.LayoutParams(-1, dp(46));
+            exactParams.topMargin = dp(12);
+            alarmGroup.addView(enableExact, exactParams);
+            enableExact.setOnClickListener(v -> openExactAlarmSettings());
+        }
     }
 
     private void addDatePickerOption(LinearLayout group, String title, String description,
@@ -1568,7 +1601,10 @@ public final class MainActivity extends Activity {
         });
     }
     private void askNotificationPermission() {
-        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return;
+        if (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+            askExactAlarmPermission();
+            return;
+        }
         LinearLayout content = column();
         content.setPadding(dp(22), dp(10), dp(22), dp(20));
         content.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -1614,6 +1650,42 @@ public final class MainActivity extends Activity {
             dialog.dismiss();
             requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
         });
+    }
+    private void askExactAlarmPermission() {
+        if (ReminderScheduler.canScheduleExactly(this) ||
+                getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getBoolean("exact_prompted", false)) return;
+        getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit().putBoolean("exact_prompted", true).apply();
+        LinearLayout content = column();
+        content.setPadding(dp(22), dp(20), dp(22), dp(20));
+        content.setBackground(shape(Color.WHITE, 22, Color.rgb(238, 225, 245)));
+        TextView title = text("开启精准提醒", 21, NAVY, true);
+        title.setGravity(Gravity.CENTER);
+        content.addView(title);
+        TextView message = text("允许设置闹钟和提醒后，待办通知会尽量按设定时间送达。未开启时仍会提醒，但系统可能延后。", 14, MUTED, false);
+        LinearLayout.LayoutParams messageParams = new LinearLayout.LayoutParams(-1, -2);
+        messageParams.topMargin = dp(12);
+        content.addView(message, messageParams);
+        TextView enable = primary("前往开启");
+        LinearLayout.LayoutParams enableParams = new LinearLayout.LayoutParams(-1, dp(50));
+        enableParams.topMargin = dp(20);
+        content.addView(enable, enableParams);
+        TextView later = text("稍后再说", 15, VIOLET, true);
+        later.setGravity(Gravity.CENTER);
+        content.addView(later, new LinearLayout.LayoutParams(-1, dp(48)));
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
+        dialog.show();
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        dialog.getWindow().setLayout(getResources().getDisplayMetrics().widthPixels - dp(32), -2);
+        later.setOnClickListener(v -> dialog.dismiss());
+        enable.setOnClickListener(v -> { dialog.dismiss(); openExactAlarmSettings(); });
+    }
+
+    private void openExactAlarmSettings() {
+        if (Build.VERSION.SDK_INT < 31) return;
+        Intent intent = new Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                Uri.parse("package:" + getPackageName()));
+        try { startActivity(intent); }
+        catch (android.content.ActivityNotFoundException error) { toast("请在系统设置中开启闹钟和提醒权限"); }
     }
     private void toast(String message) {
         FrameLayout frame = homeHeading instanceof FrameLayout ? (FrameLayout) homeHeading : surface;

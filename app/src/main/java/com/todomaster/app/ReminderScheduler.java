@@ -2,10 +2,15 @@ package com.todomaster.app;
 
 import android.app.AlarmManager;
 import android.app.PendingIntent;
+import android.os.Build;
 import android.content.Context;
 import android.content.Intent;
 
 final class ReminderScheduler {
+    static boolean canScheduleExactly(Context context) {
+        return Build.VERSION.SDK_INT < 31 || ((AlarmManager) context.getSystemService(Context.ALARM_SERVICE)).canScheduleExactAlarms();
+    }
+
     static void update(Context context, TaskStore.Task task) {
         AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         Intent intent = new Intent(context, ReminderReceiver.class).putExtra("task_id", task.id);
@@ -19,7 +24,12 @@ final class ReminderScheduler {
             if (next != Long.MAX_VALUE) {
                 intent.putExtra("reminder_time", next);
                 pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
+                try {
+                    if (canScheduleExactly(context)) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
+                    else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
+                } catch (SecurityException denied) {
+                    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
+                }
             }
         }
     }
