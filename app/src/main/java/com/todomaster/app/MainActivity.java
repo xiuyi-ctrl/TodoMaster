@@ -19,7 +19,8 @@ import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
-import android.media.Ringtone;
+import android.media.MediaPlayer;
+import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -104,6 +105,7 @@ public final class MainActivity extends Activity {
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
         store = new TaskStore(this);
+        ReminderSound.migrateOldCustom(this);
         exactAlarmAllowed = ReminderScheduler.canScheduleExactly(this);
         getWindow().setStatusBarColor(BACKGROUND);
         getWindow().setNavigationBarColor(BACKGROUND);
@@ -136,16 +138,13 @@ public final class MainActivity extends Activity {
         if (requestCode != PICK_REMINDER_SOUND || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try {
-            getContentResolver().takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION);
-            try (android.os.ParcelFileDescriptor file = getContentResolver().openFileDescriptor(uri, "r")) {
-                if (file == null) throw new java.io.IOException("无法读取音频");
-            }
             String name = uri.getLastPathSegment();
             try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
                 if (cursor != null && cursor.moveToFirst()) name = cursor.getString(0);
             }
+            Uri saved = ReminderSound.importAudio(this, uri, name);
             getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).edit()
-                    .putString(ReminderSound.URI, uri.toString()).putString(ReminderSound.NAME, name)
+                    .putString(ReminderSound.URI, saved.toString()).putString(ReminderSound.NAME, name)
                     .putString(ReminderSound.MODE, "custom").apply();
             showSettings();
             toast("已选择提醒声音");
@@ -278,12 +277,18 @@ public final class MainActivity extends Activity {
         previewParams.topMargin = dp(10);
         soundGroup.addView(previewSound, previewParams);
         previewSound.setOnClickListener(v -> {
+            MediaPlayer player = new MediaPlayer();
             try {
-                Ringtone ringtone = RingtoneManager.getRingtone(this, ReminderSound.sound(this));
-                if (ringtone == null) { toast("当前声音无法播放，请换一个提示音"); return; }
-                ringtone.play();
-                previewSound.postDelayed(ringtone::stop, 3000);
-            } catch (RuntimeException error) { toast("当前声音无法播放，请换一个提示音"); }
+                player.setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION).build());
+                player.setDataSource(this, ReminderSound.sound(this));
+                player.prepare();
+                player.start();
+                previewSound.postDelayed(() -> { if (player.isPlaying()) player.stop(); player.release(); }, 3000);
+            } catch (Exception error) {
+                player.release();
+                toast("当前声音无法播放，请重新导入音频");
+            }
         });
         TextView testSound = selectable("发送测试提醒");
         LinearLayout.LayoutParams testParams = new LinearLayout.LayoutParams(-1, dp(44));
