@@ -40,8 +40,15 @@ public final class ReminderReceiver extends BroadcastReceiver {
         if (scheduled < 0 && task != null) scheduled = task.remindAt;
         if (task == null || task.deleted || task.paused) return;
         if (task.timed && task.repeatDays > 0 && task.dueAt <= System.currentTimeMillis()) {
+            boolean notifyDue = !task.done && scheduled <= task.dueAt;
+            String dueTitle = task.title;
+            long dueAt = task.dueAt;
             store.advanceTimed(task);
             ReminderScheduler.update(context, task);
+            if (notifyDue && task.dueAt != dueAt) {
+                NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+                showNotification(context, manager, task, "定时任务时间到了", dueTitle + " · 本次执行时间已到", false, false);
+            }
             return;
         }
         if (task.done ||
@@ -68,6 +75,11 @@ public final class ReminderReceiver extends BroadcastReceiver {
 
     private void showNotification(Context context, NotificationManager manager, TaskStore.Task task,
                                   String title, String message, boolean canSnooze) {
+        showNotification(context, manager, task, title, message, canSnooze, true);
+    }
+
+    private void showNotification(Context context, NotificationManager manager, TaskStore.Task task,
+                                  String title, String message, boolean canSnooze, boolean canComplete) {
         String channel = ReminderSound.channel(context, manager);
         Intent open = new Intent(context, MainActivity.class).putExtra("task_id", task.id).setFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent pending = PendingIntent.getActivity(context, (int) task.id, open, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
@@ -77,8 +89,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         android.app.Notification.Builder builder = new android.app.Notification.Builder(context, channel)
                 .setSmallIcon(R.drawable.ic_cloud_notification).setContentTitle(title)
-                .setContentText(message).setContentIntent(pending).setAutoCancel(true)
-                .addAction(R.drawable.ic_cloud_notification, "完成", completePending);
+                .setContentText(message).setContentIntent(pending).setAutoCancel(true);
+        if (canComplete) builder.addAction(R.drawable.ic_cloud_notification, "完成", completePending);
         if (canSnooze) {
             Intent snooze = new Intent(context, ReminderReceiver.class).setAction(SNOOZE)
                     .putExtra("task_id", task.id).putExtra("due_at", task.dueAt);

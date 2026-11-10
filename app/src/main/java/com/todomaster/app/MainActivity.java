@@ -1398,7 +1398,7 @@ public final class MainActivity extends Activity {
             editing = false;
             showHome();
             toast(timedForm ? "已保存定时任务" : "已保存待办");
-            if (!reminderTimes.isEmpty()) askNotificationPermission();
+            if (timedForm || !reminderTimes.isEmpty()) askNotificationPermission();
         });
     }
 
