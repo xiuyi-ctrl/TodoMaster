@@ -17,7 +17,10 @@ final class ReminderScheduler {
         AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
         schedule(context, alarms, when, pending);
         context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
-                .putLong("test_reminder_at", when).apply();
+                .putLong("test_reminder_at", when)
+                .putLong("test_last_scheduled_at", when)
+                .putLong("test_last_triggered_at", 0)
+                .putLong("test_last_posted_at", 0).apply();
     }
 
     static boolean canScheduleExactly(Context context) {

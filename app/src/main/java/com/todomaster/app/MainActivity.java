@@ -25,6 +25,7 @@ import android.media.AudioManager;
 import android.media.RingtoneManager;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.PowerManager;
 import android.provider.Settings;
 import android.text.Editable;
 import android.text.InputType;
@@ -288,8 +289,20 @@ public final class MainActivity extends Activity {
                     ? "静音" : audio.getRingerMode() == AudioManager.RINGER_MODE_VIBRATE
                     ? "仅振动" : notificationVolume == 0 ? "通知音量为 0" : "通知音量 " + notificationVolume
                     + "/" + audio.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), R.drawable.ic_volume);
+            PowerManager power = (PowerManager) getSystemService(POWER_SERVICE);
+            addDiagnosticRow(checks, "后台电池管理", power.isIgnoringBatteryOptimizations(getPackageName())
+                    ? "已允许不受限制运行" : "由系统管理；若划掉后不提醒，请检查应用电池设置", R.drawable.ic_clock);
             long next = nextReminderAt();
             addDiagnosticRow(checks, "下一次提醒", next == 0 ? "尚未安排" : dateTime.format(new Date(next)), R.drawable.ic_calendar);
+            android.content.SharedPreferences preferences = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE);
+            long testDue = preferences.getLong("test_last_scheduled_at", 0);
+            long testTriggered = preferences.getLong("test_last_triggered_at", 0);
+            long testPosted = preferences.getLong("test_last_posted_at", 0);
+            if (testDue > 0) addDiagnosticRow(checks, "上次测试", testTriggered >= testDue - 60000
+                    ? testPosted > 0 ? "闹钟已触发，已调用系统通知"
+                    : "闹钟已触发，通知未能发送"
+                    : System.currentTimeMillis() > testDue + 120000 ? "超过 2 分钟仍未触发"
+                    : "等待触发 · " + dateTime.format(new Date(testDue)), R.drawable.ic_bell);
             TextView hint = text("检查状态后，可发送一条 1 分钟测试提醒。锁屏或退出应用后也可以验证是否送达。", 13, MUTED, false);
             LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
             hintParams.topMargin = dp(12);
@@ -317,6 +330,12 @@ public final class MainActivity extends Activity {
             checks.addView(open, openParams);
             open.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())));
+            TextView battery = selectable("打开应用电池设置");
+            LinearLayout.LayoutParams batteryParams = new LinearLayout.LayoutParams(-1, dp(44));
+            batteryParams.topMargin = dp(10);
+            checks.addView(battery, batteryParams);
+            battery.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.parse("package:" + getPackageName()))));
         }
         if (settingsPage.equals("volume")) {
             LinearLayout volumeGroup = formGroup(content);

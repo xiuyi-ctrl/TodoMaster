@@ -14,7 +14,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
     @Override public void onReceive(Context context, Intent intent) {
         if ("com.todomaster.app.TEST".equals(intent.getAction())) {
             context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
-                    .remove("test_reminder_at").apply();
+                    .remove("test_reminder_at")
+                    .putLong("test_last_triggered_at", System.currentTimeMillis()).commit();
             NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
             String channel = ReminderSound.channel(context, manager);
             try {
@@ -23,6 +24,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
                         .setContentTitle("咻咿待办测试提醒")
                         .setContentText("1 分钟测试提醒已送达")
                         .setAutoCancel(true).build());
+                context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
+                        .putLong("test_last_posted_at", System.currentTimeMillis()).commit();
             } catch (SecurityException ignored) { }
             return;
         }
