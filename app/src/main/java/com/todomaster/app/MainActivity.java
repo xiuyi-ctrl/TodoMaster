@@ -232,7 +232,6 @@ public final class MainActivity extends Activity {
         TextView heading = text(settingsPage.equals("date") ? "日期选择方式"
                 : settingsPage.equals("exact") ? "精准提醒"
                 : settingsPage.equals("sound") ? "提醒声音"
-                : settingsPage.equals("volume") ? "提示音量"
                 : settingsPage.equals("diagnostics") ? "提醒状态检查" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
@@ -265,8 +264,7 @@ public final class MainActivity extends Activity {
             String mode = ReminderSound.mode(this);
             addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
                     : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound", R.drawable.ic_settings);
-            addSettingsEntry(content, "提示音量", "随系统通知音量调整", "volume", R.drawable.ic_volume);
-            addSettingsEntry(content, "提醒状态检查", "权限、音量与测试提醒", "diagnostics", R.drawable.ic_bell);
+            addSettingsEntry(content, "提醒状态检查", "权限、后台与测试提醒", "diagnostics", R.drawable.ic_bell);
             return;
         }
         if (settingsPage.equals("diagnostics")) {
@@ -336,20 +334,13 @@ public final class MainActivity extends Activity {
             checks.addView(battery, batteryParams);
             battery.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
                     Uri.parse("package:" + getPackageName()))));
-        }
-        if (settingsPage.equals("volume")) {
-            LinearLayout volumeGroup = formGroup(content);
-            volumeGroup.addView(section("提示音量"));
-            volumeGroup.addView(text("提醒通过 Android 通知播放，音量由手机的通知音量控制；部分手机与铃声音量联动。", 14, MUTED, false));
-            TextView openSound = primary("打开系统声音设置");
-            LinearLayout.LayoutParams soundParams = new LinearLayout.LayoutParams(-1, dp(46));
-            soundParams.topMargin = dp(14);
-            volumeGroup.addView(openSound, soundParams);
-            openSound.setOnClickListener(v -> {
-                Intent intent = new Intent(Settings.ACTION_SOUND_SETTINGS);
-                if (intent.resolveActivity(getPackageManager()) != null) startActivity(intent);
-                else toast("请在手机设置中调整通知音量");
-            });
+            LinearLayout guide = formGroup(content);
+            guide.addView(section("荣耀手机后台设置"));
+            guide.addView(text("如果从最近任务划掉应用后收不到提醒，请在手机设置中：\n"
+                    + "1. 搜索“应用启动管理” → 咻咿待办，关闭“自动管理”，开启“允许自启动”“允许关联启动”“允许后台活动”。\n"
+                    + "2. 搜索“电池优化” → 所有应用 → 咻咿待办，设为“不允许”（不允许系统优化本应用）。\n"
+                    + "3. 测试期间关闭省电模式，再发送 1 分钟测试提醒并从最近任务划掉应用。\n"
+                    + "以上设置可能略微增加耗电，可在手机电池用量中查看。", 14, MUTED, false));
         }
         if (settingsPage.equals("date")) {
         LinearLayout group = formGroup(content);
@@ -2140,7 +2131,6 @@ public final class MainActivity extends Activity {
         notice.setEllipsize(TextUtils.TruncateAt.END);
         notice.setPadding(dp(14), 0, dp(14), 0);
         notice.setBackground(shape(success ? MINT : PALE, 16, 0));
-        notice.setElevation(dp(8));
         boolean inHeading = frame == homeHeading;
         FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(-2, dp(inHeading ? 36 : 44),
                 inHeading ? Gravity.END | Gravity.CENTER_VERTICAL : Gravity.TOP | Gravity.END);
