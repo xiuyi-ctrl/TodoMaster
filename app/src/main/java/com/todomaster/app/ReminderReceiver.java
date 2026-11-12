@@ -12,6 +12,20 @@ public final class ReminderReceiver extends BroadcastReceiver {
     private static final String SNOOZE = "com.todomaster.app.SNOOZE";
 
     @Override public void onReceive(Context context, Intent intent) {
+        if ("com.todomaster.app.TEST".equals(intent.getAction())) {
+            context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
+                    .remove("test_reminder_at").apply();
+            NotificationManager manager = (NotificationManager) context.getSystemService(Context.NOTIFICATION_SERVICE);
+            String channel = ReminderSound.channel(context, manager);
+            try {
+                manager.notify((int) ReminderScheduler.TEST_ID, new android.app.Notification.Builder(context, channel)
+                        .setSmallIcon(R.drawable.ic_cloud_notification)
+                        .setContentTitle("咻咿待办测试提醒")
+                        .setContentText("1 分钟测试提醒已送达")
+                        .setAutoCancel(true).build());
+            } catch (SecurityException ignored) { }
+            return;
+        }
         long id = intent.getLongExtra("task_id", -1);
         TaskStore store = new TaskStore(context);
         TaskStore.Task task = store.get(id);

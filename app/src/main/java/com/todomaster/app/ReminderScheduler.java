@@ -7,6 +7,25 @@ import android.content.Context;
 import android.content.Intent;
 
 final class ReminderScheduler {
+    static final long TEST_ID = 987655;
+
+    static void scheduleTest(Context context) {
+        long when = System.currentTimeMillis() + 60000;
+        Intent intent = new Intent(context, ReminderReceiver.class).setAction("com.todomaster.app.TEST");
+        PendingIntent pending = PendingIntent.getBroadcast(context, (int) TEST_ID, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        try {
+            if (preciseEnabled(context) && canScheduleExactly(context))
+                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
+            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
+        } catch (SecurityException denied) {
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
+        }
+        context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
+                .putLong("test_reminder_at", when).apply();
+    }
+
     static boolean canScheduleExactly(Context context) {
         return Build.VERSION.SDK_INT < 31 || ((AlarmManager) context.getSystemService(Context.ALARM_SERVICE)).canScheduleExactAlarms();
     }

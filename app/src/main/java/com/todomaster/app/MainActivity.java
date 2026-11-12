@@ -21,6 +21,7 @@ import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.media.MediaPlayer;
 import android.media.AudioAttributes;
+import android.media.AudioManager;
 import android.media.RingtoneManager;
 import android.os.Build;
 import android.os.Bundle;
@@ -144,12 +145,14 @@ public final class MainActivity extends Activity {
             for (TaskStore.Task task : store.all(false)) ReminderScheduler.update(this, task);
             if (settings) showSettingsPage();
         }
+        if (settings && settingsPage.equals("diagnostics")) showSettingsPage();
     }
 
     @Override public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
         if (requestCode == 1 && results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED)
             askExactAlarmPermission();
+        if (requestCode == 1 && settings && settingsPage.equals("diagnostics")) showSettingsPage();
     }
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -228,7 +231,8 @@ public final class MainActivity extends Activity {
         TextView heading = text(settingsPage.equals("date") ? "日期选择方式"
                 : settingsPage.equals("exact") ? "精准提醒"
                 : settingsPage.equals("sound") ? "提醒声音"
-                : settingsPage.equals("volume") ? "提示音量" : "设置", 23, NAVY, true);
+                : settingsPage.equals("volume") ? "提示音量"
+                : settingsPage.equals("diagnostics") ? "提醒状态检查" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
         header.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -261,7 +265,58 @@ public final class MainActivity extends Activity {
             addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
                     : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound", R.drawable.ic_settings);
             addSettingsEntry(content, "提示音量", "随系统通知音量调整", "volume", R.drawable.ic_volume);
+            addSettingsEntry(content, "提醒状态检查", "权限、音量与测试提醒", "diagnostics", R.drawable.ic_bell);
             return;
+        }
+        if (settingsPage.equals("diagnostics")) {
+            LinearLayout checks = formGroup(content);
+            checks.addView(section("提醒状态"));
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            boolean notificationsAllowed = manager.areNotificationsEnabled()
+                    && (Build.VERSION.SDK_INT < 33 || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                    == PackageManager.PERMISSION_GRANTED);
+            addDiagnosticRow(checks, "通知权限", notificationsAllowed ? "已允许" : "未允许", R.drawable.ic_bell);
+            android.app.NotificationChannel channel = manager.getNotificationChannel(ReminderSound.channel(this, manager));
+            addDiagnosticRow(checks, "提醒渠道", channel.getImportance() == NotificationManager.IMPORTANCE_NONE
+                    ? "已关闭" : channel.getSound() == null ? "已静音" : "可播放声音", R.drawable.ic_volume);
+            boolean precise = ReminderScheduler.preciseEnabled(this);
+            boolean authorized = ReminderScheduler.canScheduleExactly(this);
+            addDiagnosticRow(checks, "精准提醒", precise ? authorized ? "可用" : "未获系统授权" : "已关闭", R.drawable.ic_clock);
+            AudioManager audio = (AudioManager) getSystemService(AUDIO_SERVICE);
+            int notificationVolume = audio.getStreamVolume(AudioManager.STREAM_NOTIFICATION);
+            addDiagnosticRow(checks, "手机声音", audio.getRingerMode() == AudioManager.RINGER_MODE_SILENT
+                    ? "静音" : audio.getRingerMode() == AudioManager.RINGER_MODE_VIBRATE
+                    ? "仅振动" : notificationVolume == 0 ? "通知音量为 0" : "通知音量 " + notificationVolume
+                    + "/" + audio.getStreamMaxVolume(AudioManager.STREAM_NOTIFICATION), R.drawable.ic_volume);
+            long next = nextReminderAt();
+            addDiagnosticRow(checks, "下一次提醒", next == 0 ? "尚未安排" : dateTime.format(new Date(next)), R.drawable.ic_calendar);
+            TextView hint = text("检查状态后，可发送一条 1 分钟测试提醒。锁屏或退出应用后也可以验证是否送达。", 13, MUTED, false);
+            LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
+            hintParams.topMargin = dp(12);
+            checks.addView(hint, hintParams);
+            TextView test = primary("1 分钟后测试提醒");
+            LinearLayout.LayoutParams testParams = new LinearLayout.LayoutParams(-1, dp(46));
+            testParams.topMargin = dp(14);
+            checks.addView(test, testParams);
+            test.setOnClickListener(v -> {
+                if (!notificationsAllowed) {
+                    if (Build.VERSION.SDK_INT >= 33 && checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)
+                            != PackageManager.PERMISSION_GRANTED)
+                        requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, 1);
+                    else startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                            .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName()));
+                    return;
+                }
+                ReminderScheduler.scheduleTest(this);
+                toast("测试提醒已安排在 1 分钟后");
+                showSettingsPage();
+            });
+            TextView open = selectable("打开系统通知设置");
+            LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(-1, dp(44));
+            openParams.topMargin = dp(10);
+            checks.addView(open, openParams);
+            open.setOnClickListener(v -> startActivity(new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                    .putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName())));
         }
         if (settingsPage.equals("volume")) {
             LinearLayout volumeGroup = formGroup(content);
@@ -409,6 +464,38 @@ public final class MainActivity extends Activity {
         soundHintParams.topMargin = dp(8);
         soundGroup.addView(soundHint, soundHintParams);
         }
+    }
+
+    private long nextReminderAt() {
+        long now = System.currentTimeMillis();
+        long next = getSharedPreferences(SETTINGS_FILE, MODE_PRIVATE).getLong("test_reminder_at", 0);
+        if (next <= now) next = Long.MAX_VALUE;
+        for (TaskStore.Task task : store.all(false)) {
+            if (task.paused || task.deleted || task.done) continue;
+            for (long time : task.reminderTimes) if (time > now && time < next) next = time;
+            if (task.snoozeAt > now && task.snoozeAt < next) next = task.snoozeAt;
+            if (task.timed && task.repeatDays > 0 && task.dueAt > now && task.dueAt < next) next = task.dueAt;
+        }
+        return next == Long.MAX_VALUE ? 0 : next;
+    }
+
+    private void addDiagnosticRow(LinearLayout group, String label, String value, int iconResource) {
+        LinearLayout item = row();
+        item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setPadding(dp(12), dp(7), dp(12), dp(7));
+        item.setBackground(shape(PALE, 12, 0));
+        ImageView icon = new ImageView(this);
+        icon.setImageResource(iconResource);
+        icon.setColorFilter(VIOLET);
+        item.addView(icon, new LinearLayout.LayoutParams(dp(22), dp(22)));
+        LinearLayout labels = column();
+        labels.setPadding(dp(12), 0, 0, 0);
+        labels.addView(text(label, 14, NAVY, true));
+        labels.addView(text(value, 13, MUTED, false));
+        item.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.bottomMargin = dp(8);
+        group.addView(item, params);
     }
 
     private void addSettingsEntry(LinearLayout content, String title, String summary, String page, int iconResource) {
