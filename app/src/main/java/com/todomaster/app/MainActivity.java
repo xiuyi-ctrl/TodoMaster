@@ -348,7 +348,7 @@ public final class MainActivity extends Activity {
         alarmGroup.addView(section("精准提醒"));
         boolean exact = ReminderScheduler.canScheduleExactly(this);
         boolean enabled = ReminderScheduler.preciseEnabled(this);
-        TextView status = text(enabled ? exact ? "已开启：尽量按设定时间提醒" : "系统尚未授权，暂使用普通提醒"
+        TextView status = text(enabled ? exact ? "已开启：按系统闹钟时间调度，状态栏可能显示闹钟图标" : "系统尚未授权，暂使用普通提醒"
                 : "已关闭：使用普通提醒", 14, MUTED, false);
         alarmGroup.addView(status);
         TextView toggle = primary(enabled ? "关闭精准提醒" : "开启精准提醒");

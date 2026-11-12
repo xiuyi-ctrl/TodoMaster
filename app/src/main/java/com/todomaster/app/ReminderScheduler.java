@@ -15,13 +15,7 @@ final class ReminderScheduler {
         PendingIntent pending = PendingIntent.getBroadcast(context, (int) TEST_ID, intent,
                 PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
-        try {
-            if (preciseEnabled(context) && canScheduleExactly(context))
-                alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
-            else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
-        } catch (SecurityException denied) {
-            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
-        }
+        schedule(context, alarms, when, pending);
         context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).edit()
                 .putLong("test_reminder_at", when).apply();
     }
@@ -32,6 +26,19 @@ final class ReminderScheduler {
 
     static boolean preciseEnabled(Context context) {
         return context.getSharedPreferences("xiuyi_settings", Context.MODE_PRIVATE).getBoolean("precise_reminders", true);
+    }
+
+    private static void schedule(Context context, AlarmManager alarms, long when, PendingIntent pending) {
+        try {
+            if (preciseEnabled(context) && canScheduleExactly(context)) {
+                Intent show = new Intent(context, MainActivity.class);
+                PendingIntent showPending = PendingIntent.getActivity(context, 987656, show,
+                        PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+                alarms.setAlarmClock(new AlarmManager.AlarmClockInfo(when, showPending), pending);
+            } else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
+        } catch (SecurityException denied) {
+            alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, when, pending);
+        }
     }
 
     static void update(Context context, TaskStore.Task task) {
@@ -49,12 +56,7 @@ final class ReminderScheduler {
             if (next != Long.MAX_VALUE && next > now) {
                 intent.putExtra("reminder_time", next);
                 pending = PendingIntent.getBroadcast(context, (int) task.id, intent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
-                try {
-                    if (preciseEnabled(context) && canScheduleExactly(context)) alarms.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
-                    else alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
-                } catch (SecurityException denied) {
-                    alarms.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, next, pending);
-                }
+                schedule(context, alarms, next, pending);
             }
         }
     }
