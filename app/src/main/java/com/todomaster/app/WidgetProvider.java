@@ -94,7 +94,8 @@ public class WidgetProvider extends AppWidgetProvider {
                     TaskStore.Task task = i < Math.min(capacity, tasks.size()) ? tasks.get(i) : null;
                     views.setViewVisibility(rows[i], task == null ? View.GONE : View.VISIBLE);
                     if (task == null) continue;
-                    views.setTextViewText(titles[i], wide ? task.title : task.title + " · " + due(task));
+                    views.setTextViewText(titles[i], wide ? task.title + subtaskProgress(task)
+                            : task.title + subtaskProgress(task) + " · " + due(task));
                     if (wide) views.setTextViewText(i == 0 ? R.id.due1 : R.id.due2, due(task));
                     views.setOnClickPendingIntent(titles[i], open(context, timed, task.id, false));
                     Intent complete = new Intent(context, timed ? Timed.class : Todo.class).setAction(COMPLETE)
@@ -135,6 +136,13 @@ public class WidgetProvider extends AppWidgetProvider {
         if (task.dueAt == 0) return "无截止时间";
         if (task.dueAt < System.currentTimeMillis()) return "已逾期";
         return new SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA).format(new Date(task.dueAt));
+    }
+
+    private static String subtaskProgress(TaskStore.Task task) {
+        if (task.subtasks.isEmpty()) return "";
+        int completed = 0;
+        for (TaskStore.Subtask child : task.subtasks) if (child.done) completed++;
+        return " · " + completed + "/" + task.subtasks.size();
     }
 
     private static String shortDue(TaskStore.Task task) {

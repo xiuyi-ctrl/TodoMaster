@@ -1146,6 +1146,34 @@ public final class MainActivity extends Activity {
         bp.leftMargin = dp(8);
         badges.addView(priority, bp);
         card.addView(badges);
+        if (!task.subtasks.isEmpty()) {
+            int completed = 0;
+            String next = null;
+            for (TaskStore.Subtask child : task.subtasks) {
+                if (child.done) completed++;
+                else if (next == null) next = child.title;
+            }
+            TextView progressLabel = text("已完成 " + completed + "/" + task.subtasks.size(), 12, VIOLET, true);
+            progressLabel.setPadding(dp(48), dp(3), 0, dp(3));
+            card.addView(progressLabel);
+            android.widget.ProgressBar progress = new android.widget.ProgressBar(this, null,
+                    android.R.attr.progressBarStyleHorizontal);
+            progress.setMax(task.subtasks.size());
+            progress.setProgress(completed);
+            progress.setProgressTintList(ColorStateList.valueOf(BLUE));
+            progress.setProgressBackgroundTintList(ColorStateList.valueOf(PALE));
+            LinearLayout.LayoutParams progressParams = new LinearLayout.LayoutParams(-1, dp(5));
+            progressParams.leftMargin = dp(48);
+            progressParams.bottomMargin = dp(4);
+            card.addView(progress, progressParams);
+            if (next != null) {
+                TextView nextStep = text("下一步 · " + next, 12, MUTED, false);
+                nextStep.setSingleLine(true);
+                nextStep.setEllipsize(TextUtils.TruncateAt.END);
+                nextStep.setPadding(dp(48), 0, 0, dp(4));
+                card.addView(nextStep);
+            }
+        }
         if (task.note != null && !task.note.isEmpty() && getResources().getDisplayMetrics().widthPixels / getResources().getDisplayMetrics().density >= 412) {
             TextView note = text(task.note, 13, MUTED, false);
             note.setMaxLines(2);
@@ -1501,6 +1529,36 @@ public final class MainActivity extends Activity {
         note.setGravity(Gravity.TOP);
         noteGroup.addView(note, new LinearLayout.LayoutParams(-1, -2));
 
+        List<TaskStore.Subtask> subtaskDraft = new ArrayList<>();
+        if (!timedForm) {
+            for (TaskStore.Subtask existing : task.subtasks) {
+                TaskStore.Subtask copy = new TaskStore.Subtask();
+                copy.id = existing.id;
+                copy.title = existing.title;
+                copy.done = existing.done;
+                copy.createdAt = existing.createdAt;
+                subtaskDraft.add(copy);
+            }
+            LinearLayout subtaskGroup = formGroup(form);
+            subtaskGroup.addView(section("子任务清单"));
+            LinearLayout subtaskRows = column();
+            subtaskGroup.addView(subtaskRows);
+            TextView addSubtask = selectable("＋ 添加子任务");
+            addSubtask.setGravity(Gravity.CENTER);
+            LinearLayout.LayoutParams addParams = new LinearLayout.LayoutParams(-1, dp(42));
+            addParams.topMargin = dp(5);
+            subtaskGroup.addView(addSubtask, addParams);
+            addSubtask.setOnClickListener(v -> {
+                TaskStore.Subtask child = new TaskStore.Subtask();
+                child.title = "";
+                subtaskDraft.add(child);
+                renderSubtaskRows(subtaskRows, subtaskDraft);
+                LinearLayout last = (LinearLayout) subtaskRows.getChildAt(subtaskRows.getChildCount() - 1);
+                last.getChildAt(1).requestFocus();
+            });
+            renderSubtaskRows(subtaskRows, subtaskDraft);
+        }
+
         LinearLayout categoryGroup = formGroup(form);
         categoryGroup.addView(section("分类"));
         String[] chosenCategory = {task.category == null ? "日常" : task.category};
@@ -1642,6 +1700,10 @@ public final class MainActivity extends Activity {
             }
             if (timedForm && due[0] == 0) { toast("请设置首次执行时间"); return; }
             if (!advances.isEmpty() && due[0] == 0) { toast(timedForm ? "请先选择执行时间" : "请先选择截止时间"); return; }
+            for (TaskStore.Subtask child : subtaskDraft) {
+                if (child.title.trim().isEmpty()) { toast("请填写子任务标题或删除空白行"); return; }
+                child.title = child.title.trim();
+            }
             List<Long> reminderTimes = new ArrayList<>();
             for (long minutes : advances) {
                 if (timedForm && minutes >= (long) interval * 1440) {
@@ -1663,13 +1725,54 @@ public final class MainActivity extends Activity {
             task.reminderTimes.addAll(reminderTimes);
             task.remindAt = reminderTimes.isEmpty() ? 0 : Collections.min(reminderTimes);
             task.snoozeAt = snooze[0] > 0 && snooze[0] < due[0] ? snooze[0] : 0;
-            store.save(task);
+            if (timedForm) store.save(task);
+            else {
+                task.subtasks.clear();
+                task.subtasks.addAll(subtaskDraft);
+                store.saveWithSubtasks(task);
+            }
             ReminderScheduler.update(this, task);
             editing = false;
             showHome();
             toast(timedForm ? "已保存定时任务" : "已保存待办");
             if (timedForm || !reminderTimes.isEmpty()) askNotificationPermission();
         });
+    }
+
+    private void renderSubtaskRows(LinearLayout container, List<TaskStore.Subtask> children) {
+        container.removeAllViews();
+        if (children.isEmpty()) {
+            TextView empty = text("把这件事拆成小步骤吧", 13, MUTED, false);
+            empty.setPadding(dp(8), dp(6), 0, dp(6));
+            container.addView(empty);
+        }
+        for (TaskStore.Subtask child : new ArrayList<>(children)) {
+            LinearLayout row = row();
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(-1, -2);
+            rowParams.bottomMargin = dp(5);
+            container.addView(row, rowParams);
+            CheckBox done = new CheckBox(this);
+            done.setChecked(child.done);
+            done.setButtonTintList(ColorStateList.valueOf(VIOLET));
+            done.setOnCheckedChangeListener((button, checked) -> child.done = checked);
+            row.addView(done, new LinearLayout.LayoutParams(dp(42), dp(48)));
+            EditText title = input("子任务标题", child.title, true);
+            title.addTextChangedListener(new TextWatcher() {
+                public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+                public void onTextChanged(CharSequence s, int start, int before, int count) { child.title = s.toString(); }
+                public void afterTextChanged(Editable s) { }
+            });
+            row.addView(title, new LinearLayout.LayoutParams(0, dp(44), 1));
+            TextView remove = text("×", 24, BLUE, false);
+            remove.setGravity(Gravity.CENTER);
+            remove.setContentDescription("删除子任务");
+            row.addView(remove, new LinearLayout.LayoutParams(dp(40), dp(48)));
+            remove.setOnClickListener(v -> {
+                children.remove(child);
+                renderSubtaskRows(container, children);
+            });
+        }
     }
 
     private String advanceLabel(long minutes) {

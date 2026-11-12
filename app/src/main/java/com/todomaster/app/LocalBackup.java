@@ -178,7 +178,7 @@ final class LocalBackup {
     private static JSONObject toJson(Data data) throws JSONException {
         JSONObject root = new JSONObject();
         root.put("format", FORMAT);
-        root.put("schemaVersion", 1);
+        root.put("schemaVersion", 2);
         root.put("exportedAt", data.exportedAt);
         JSONObject settings = new JSONObject();
         settings.put("dateMode", data.dateMode);
@@ -206,6 +206,13 @@ final class LocalBackup {
             item.put("deleted", task.deleted);
             item.put("deletedAt", task.deletedAt);
             item.put("createdAt", task.createdAt);
+            JSONArray subtasks = new JSONArray();
+            for (TaskStore.Subtask child : task.subtasks) {
+                subtasks.put(new JSONObject().put("id", child.id).put("title", child.title)
+                        .put("done", child.done).put("sortIndex", child.sortIndex)
+                        .put("createdAt", child.createdAt));
+            }
+            item.put("subtasks", subtasks);
             tasks.put(item);
         }
         root.put("tasks", tasks);
@@ -214,7 +221,8 @@ final class LocalBackup {
 
     private static Data fromJson(JSONObject root) throws IOException, JSONException {
         if (!FORMAT.equals(root.optString("format"))) throw new IOException("这不是咻咿待办备份");
-        if (root.optInt("schemaVersion", -1) != 1) throw new IOException("备份版本不受支持");
+        int version = root.optInt("schemaVersion", -1);
+        if (version != 1 && version != 2) throw new IOException("备份版本不受支持");
         Data data = new Data();
         data.exportedAt = root.getLong("exportedAt");
         JSONObject settings = root.getJSONObject("settings");
@@ -230,6 +238,7 @@ final class LocalBackup {
             if (!data.soundExtension.matches("mp3|wav|ogg|m4a|aac")) throw new IOException("音频格式不受支持");
         }
         Set<Long> ids = new HashSet<>();
+        Set<Long> subtaskIds = new HashSet<>();
         JSONArray tasks = root.getJSONArray("tasks");
         for (int i = 0; i < tasks.length(); i++) {
             JSONObject item = tasks.getJSONObject(i);
@@ -254,6 +263,22 @@ final class LocalBackup {
                     || !isCategory(task.category) || !isPriority(task.priority)) throw new IOException("备份中的待办数据无效");
             for (long time : task.reminderTimes) {
                 if (time <= 0 || task.dueAt <= 0 || time >= task.dueAt) throw new IOException("备份中的提醒时间无效");
+            }
+            if (version == 2) {
+                JSONArray children = item.getJSONArray("subtasks");
+                for (int j = 0; j < children.length(); j++) {
+                    JSONObject childItem = children.getJSONObject(j);
+                    TaskStore.Subtask child = new TaskStore.Subtask();
+                    child.id = childItem.getLong("id");
+                    child.title = childItem.getString("title");
+                    child.done = childItem.getBoolean("done");
+                    child.sortIndex = childItem.getInt("sortIndex");
+                    child.createdAt = childItem.getLong("createdAt");
+                    if (task.timed || child.id < 1 || !subtaskIds.add(child.id)
+                            || child.title.trim().isEmpty() || child.sortIndex != j || child.createdAt < 0)
+                        throw new IOException("备份中的子任务数据无效");
+                    task.subtasks.add(child);
+                }
             }
             task.remindAt = task.reminderTimes.isEmpty() ? 0 : java.util.Collections.min(task.reminderTimes);
             data.tasks.add(task);
