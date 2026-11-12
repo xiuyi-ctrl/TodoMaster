@@ -10,6 +10,22 @@
             </intent-filter>
         </activity>
         <receiver android:name=".ReminderReceiver" android:exported="false" />
+        <receiver android:name=".WidgetProvider$Todo" android:exported="true" android:label="咻咿待办 · 我的待办">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/todo_widget" />
+        </receiver>
+        <receiver android:name=".WidgetProvider$Timed" android:exported="true" android:label="咻咿待办 · 定时任务">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/timed_widget" />
+        </receiver>
+        <receiver android:name=".WidgetProvider$TodoWide" android:exported="true" android:label="咻咿待办 · 我的待办 4×2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/todo_widget_wide" />
+        </receiver>
+        <receiver android:name=".WidgetProvider$TimedWide" android:exported="true" android:label="咻咿待办 · 定时任务 4×2">
+            <intent-filter><action android:name="android.appwidget.action.APPWIDGET_UPDATE" /></intent-filter>
+            <meta-data android:name="android.appwidget.provider" android:resource="@xml/timed_widget_wide" />
+        </receiver>
         <provider android:name=".ReminderSoundProvider" android:authorities="com.todomaster.app.reminder-sound" android:exported="true" />
         <receiver android:name=".BootReceiver" android:exported="true">
             <intent-filter><action android:name="android.intent.action.BOOT_COMPLETED" /></intent-filter>

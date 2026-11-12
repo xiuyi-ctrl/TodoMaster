@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1080" height="590" viewBox="0 0 1080 590">
+  <defs>
+    <style>
+      text { font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; fill: #3B3551; }
+      .muted { fill: #706881; }
+      .purple { fill: #8D73E8; }
+      .small { font-size: 18px; }
+      .body { font-size: 22px; }
+      .title { font-size: 27px; font-weight: 700; }
+    </style>
+  </defs>
+  <rect width="1080" height="590" fill="#F4F0F6"/>
+  <text x="54" y="70" font-size="34" font-weight="700">咻咿待办 · 桌面小组件</text>
+  <text x="54" y="108" class="muted body">同一套视觉，随桌面格数调整内容密度</text>
+
+  <text x="60" y="168" class="muted small">紧凑 · 约 2×2</text>
+  <rect x="54" y="188" width="285" height="295" rx="28" fill="#FFF9F2" stroke="#D9CDEC" stroke-width="2"/>
+  <path d="M93 245c-11 0-20-9-20-20 0-10 8-19 18-20 3-14 15-25 30-25 16 0 28 12 30 27 10 1 17 9 17 19 0 11-9 19-20 19Z" transform="translate(0 31) scale(.79)" fill="#F0E9FF" stroke="#8D73E8" stroke-width="3"/>
+  <path d="M91 229q5 6 10 0m10 0q5 6 10 0" fill="none" stroke="#8D73E8" stroke-width="2.5" stroke-linecap="round"/>
+  <text x="148" y="238" class="title">我的待办</text>
+  <text x="78" y="302" font-size="52" font-weight="700">3</text>
+  <text x="131" y="300" class="muted body">项待完成</text>
+  <rect x="75" y="326" width="242" height="100" rx="20" fill="#FFFFFF"/>
+  <circle cx="99" cy="356" r="5" fill="#8D73E8"/>
+  <text x="116" y="363" class="body" font-weight="700">整理项目方案</text>
+  <text x="98" y="399" class="muted small">11月13日 14:25</text>
+  <circle cx="293" cy="454" r="25" fill="#8D73E8"/>
+  <text x="293" y="464" text-anchor="middle" font-size="31" fill="#FFFFFF">＋</text>
+
+  <text x="389" y="168" class="muted small">横向 · 约 4×2</text>
+  <rect x="382" y="188" width="634" height="295" rx="28" fill="#FFF9F2" stroke="#D9CDEC" stroke-width="2"/>
+  <path d="M408 226c0-8 6-14 14-14 3-11 12-18 23-18 12 0 21 9 23 20 8 1 13 7 13 15 0 9-7 16-16 16h-41c-9 0-16-8-16-19Z" fill="#F0E9FF" stroke="#8D73E8" stroke-width="2.5"/>
+  <path d="M429 226q4 4 8 0m8 0q4 4 8 0" fill="none" stroke="#8D73E8" stroke-width="2" stroke-linecap="round"/>
+  <text x="495" y="236" class="title">我的待办</text>
+  <rect x="833" y="204" width="147" height="40" rx="20" fill="#F0E9FF"/>
+  <text x="906" y="231" class="purple small" text-anchor="middle">待完成 3</text>
+
+  <rect x="405" y="259" width="588" height="72" rx="18" fill="#FFFFFF"/>
+  <rect x="426" y="283" width="22" height="22" rx="5" fill="none" stroke="#3B3551" stroke-width="2.5"/>
+  <text x="465" y="291" class="body" font-weight="700">整理项目方案</text>
+  <text x="465" y="317" class="muted small">11月13日 14:25</text>
+  <rect x="405" y="343" width="588" height="72" rx="18" fill="#FFFFFF"/>
+  <rect x="426" y="367" width="22" height="22" rx="5" fill="none" stroke="#3B3551" stroke-width="2.5"/>
+  <text x="465" y="375" class="body" font-weight="700">阅读 30 分钟</text>
+  <text x="465" y="401" class="muted small">11月14日 21:00</text>
+  <text x="424" y="456" class="purple small" font-weight="700">查看全部 ›</text>
+  <rect x="829" y="428" width="164" height="42" rx="21" fill="#8D73E8"/>
+  <text x="911" y="456" text-anchor="middle" font-size="20" font-weight="700" fill="#FFFFFF">＋ 新建待办</text>
+
+  <text x="54" y="545" class="muted small">示意稿：任务文字与实际数量由本机数据决定；桌面启动器可能调整可用尺寸。</text>
+</svg>

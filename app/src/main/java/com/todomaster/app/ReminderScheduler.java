@@ -63,4 +63,12 @@ final class ReminderScheduler {
             }
         }
     }
+
+    static void cancel(Context context, long taskId) {
+        AlarmManager alarms = (AlarmManager) context.getSystemService(Context.ALARM_SERVICE);
+        Intent intent = new Intent(context, ReminderReceiver.class).putExtra("task_id", taskId);
+        PendingIntent pending = PendingIntent.getBroadcast(context, (int) taskId, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
+        alarms.cancel(pending);
+    }
 }

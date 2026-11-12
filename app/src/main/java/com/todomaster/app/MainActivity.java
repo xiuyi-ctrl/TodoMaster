@@ -54,6 +54,10 @@ import java.util.Collections;
 import java.util.Date;
 import java.util.List;
 import java.util.Locale;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.IOException;
+import java.io.OutputStream;
 
 public final class MainActivity extends Activity {
     private static final int BACKGROUND = Color.rgb(255, 249, 242);
@@ -78,6 +82,8 @@ public final class MainActivity extends Activity {
     private static final String SETTINGS_FILE = "xiuyi_settings";
     private static final String DATE_PICKER_MODE = "date_picker_mode";
     private static final int PICK_REMINDER_SOUND = 2;
+    private static final int CREATE_BACKUP = 3;
+    private static final int OPEN_BACKUP = 4;
     private final SimpleDateFormat dateTime = new SimpleDateFormat("MM月dd日 HH:mm", Locale.CHINA);
     private final SimpleDateFormat dateOnly = new SimpleDateFormat("MM月dd日", Locale.CHINA);
     private final SimpleDateFormat timeOnly = new SimpleDateFormat("HH:mm", Locale.CHINA);
@@ -110,6 +116,8 @@ public final class MainActivity extends Activity {
     private int taskTransitionToken;
     private int filterTransitionToken;
     private boolean exactAlarmAllowed;
+    private File pendingBackup;
+    private TextView backupStatus;
 
     @Override public void onCreate(Bundle state) {
         super.onCreate(state);
@@ -126,6 +134,7 @@ public final class MainActivity extends Activity {
             ReminderScheduler.update(this, task);
         }
         showHome();
+        openFromWidget(getIntent());
         openFromNotification(getIntent());
     }
 
@@ -158,6 +167,43 @@ public final class MainActivity extends Activity {
 
     @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == CREATE_BACKUP) {
+            File file = pendingBackup;
+            pendingBackup = null;
+            if (file == null) return;
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) { file.delete(); return; }
+            Uri destination = data.getData();
+            int taskCount = store.all(false).size() + store.all(true).size();
+            new Thread(() -> {
+                try (FileInputStream input = new FileInputStream(file);
+                     OutputStream output = getContentResolver().openOutputStream(destination, "w")) {
+                    if (output == null) throw new IOException("无法写入备份文件");
+                    byte[] buffer = new byte[8192];
+                    int count;
+                    while ((count = input.read(buffer)) != -1) output.write(buffer, 0, count);
+                    runOnUiThread(() -> {
+                        if (backupStatus != null) backupStatus.setText("已导出 " + taskCount + " 项备份");
+                        toast("已导出备份");
+                    });
+                } catch (IOException | SecurityException error) {
+                    runOnUiThread(() -> toast("导出失败：" + error.getMessage()));
+                } finally { file.delete(); }
+            }).start();
+            return;
+        }
+        if (requestCode == OPEN_BACKUP) {
+            if (resultCode != RESULT_OK || data == null || data.getData() == null) return;
+            Uri source = data.getData();
+            new Thread(() -> {
+                try {
+                    LocalBackup.Data backup = LocalBackup.read(this, source);
+                    runOnUiThread(() -> showRestoreConfirm(backup));
+                } catch (IOException | SecurityException error) {
+                    runOnUiThread(() -> toast("无法恢复：" + error.getMessage()));
+                }
+            }).start();
+            return;
+        }
         if (requestCode != PICK_REMINDER_SOUND || resultCode != RESULT_OK || data == null || data.getData() == null) return;
         Uri uri = data.getData();
         try {
@@ -179,6 +225,7 @@ public final class MainActivity extends Activity {
     @Override protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        openFromWidget(intent);
         openFromNotification(intent);
     }
 
@@ -200,6 +247,16 @@ public final class MainActivity extends Activity {
                 edit(task);
             }
         }
+    }
+
+    private void openFromWidget(Intent intent) {
+        if (!intent.hasExtra("widget_timed")) return;
+        timedPage = intent.getBooleanExtra("widget_timed", false);
+        boolean create = intent.getBooleanExtra("widget_new", false);
+        intent.removeExtra("widget_timed");
+        intent.removeExtra("widget_new");
+        if (create) edit(null);
+        else showHome();
     }
 
     private boolean useWheelDatePicker() {
@@ -232,6 +289,7 @@ public final class MainActivity extends Activity {
         TextView heading = text(settingsPage.equals("date") ? "日期选择方式"
                 : settingsPage.equals("exact") ? "精准提醒"
                 : settingsPage.equals("sound") ? "提醒声音"
+                : settingsPage.equals("backup") ? "本地备份与恢复"
                 : settingsPage.equals("diagnostics") ? "提醒状态检查" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
@@ -265,6 +323,32 @@ public final class MainActivity extends Activity {
             addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
                     : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound", R.drawable.ic_settings);
             addSettingsEntry(content, "提醒状态检查", "权限、后台与测试提醒", "diagnostics", R.drawable.ic_bell);
+            addSettingsEntry(content, "本地备份与恢复", "保存或恢复本机数据", "backup", R.drawable.ic_folder);
+            return;
+        }
+        if (settingsPage.equals("backup")) {
+            LinearLayout export = formGroup(content);
+            export.addView(section("导出备份"));
+            export.addView(text("保存待办、定时任务、回收站、应用设置及自定义提示音。备份文件未加密，请妥善保管。", 14, MUTED, false));
+            TextView save = primary("选择位置并导出");
+            LinearLayout.LayoutParams saveParams = new LinearLayout.LayoutParams(-1, dp(46));
+            saveParams.topMargin = dp(12);
+            export.addView(save, saveParams);
+            save.setOnClickListener(v -> startBackup());
+            LinearLayout restore = formGroup(content);
+            restore.addView(section("从备份恢复"));
+            restore.addView(text("先预览备份，再确认替换当前数据。恢复后会重新安排未来提醒；系统通知和后台权限仍需在手机上检查。", 14, MUTED, false));
+            TextView openBackup = selectable("选择备份文件");
+            LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(-1, dp(46));
+            openParams.topMargin = dp(12);
+            restore.addView(openBackup, openParams);
+            openBackup.setOnClickListener(v -> {
+                Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT).setType("*/*")
+                        .addCategory(Intent.CATEGORY_OPENABLE);
+                startActivityForResult(pick, OPEN_BACKUP);
+            });
+            backupStatus = text("", 13, MUTED, false);
+            content.addView(backupStatus);
             return;
         }
         if (settingsPage.equals("diagnostics")) {
@@ -474,6 +558,72 @@ public final class MainActivity extends Activity {
         soundHintParams.topMargin = dp(8);
         soundGroup.addView(soundHint, soundHintParams);
         }
+    }
+
+    private void startBackup() {
+        new Thread(() -> {
+            try {
+                File file = LocalBackup.create(this, store);
+                runOnUiThread(() -> {
+                    pendingBackup = file;
+                    Intent save = new Intent(Intent.ACTION_CREATE_DOCUMENT).setType("application/octet-stream")
+                            .addCategory(Intent.CATEGORY_OPENABLE);
+                    String name = new SimpleDateFormat("yyyyMMdd-HHmm", Locale.CHINA).format(new Date());
+                    save.putExtra(Intent.EXTRA_TITLE, "咻咿待办-" + name + ".xybak");
+                    startActivityForResult(save, CREATE_BACKUP);
+                });
+            } catch (IOException | SecurityException error) {
+                runOnUiThread(() -> toast("备份失败：" + error.getMessage()));
+            }
+        }).start();
+    }
+
+    private void showRestoreConfirm(LocalBackup.Data backup) {
+        LinearLayout content = column();
+        content.setPadding(dp(24), dp(22), dp(24), dp(20));
+        content.setBackground(shape(Color.WHITE, 24, 0));
+        TextView title = text("从备份恢复？", 20, NAVY, true);
+        content.addView(title);
+        String when = new SimpleDateFormat("yyyy年MM月dd日 HH:mm", Locale.CHINA)
+                .format(new Date(backup.exportedAt));
+        TextView details = text("备份时间：" + when + "\n待办 " + backup.count(false, false)
+                + " 项 · 定时任务 " + backup.count(true, false) + " 项 · 回收站 "
+                + backup.deletedCount() + " 项\n\n当前数据将被替换。建议先导出当前数据。", 14, MUTED, false);
+        LinearLayout.LayoutParams detailsParams = new LinearLayout.LayoutParams(-1, -2);
+        detailsParams.topMargin = dp(12);
+        content.addView(details, detailsParams);
+        LinearLayout actions = row();
+        LinearLayout.LayoutParams actionsParams = new LinearLayout.LayoutParams(-1, dp(48));
+        actionsParams.topMargin = dp(20);
+        content.addView(actions, actionsParams);
+        TextView cancel = selectable("取消");
+        actions.addView(cancel, new LinearLayout.LayoutParams(0, -1, 1));
+        TextView confirm = primary("替换并恢复");
+        LinearLayout.LayoutParams confirmParams = new LinearLayout.LayoutParams(0, -1, 1);
+        confirmParams.leftMargin = dp(10);
+        actions.addView(confirm, confirmParams);
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
+        dialog.show();
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        dialog.getWindow().setLayout(getResources().getDisplayMetrics().widthPixels - dp(32), -2);
+        cancel.setOnClickListener(v -> dialog.dismiss());
+        confirm.setOnClickListener(v -> {
+            dialog.dismiss();
+            new Thread(() -> {
+                try {
+                    boolean scheduled = LocalBackup.restore(this, store, backup);
+                    runOnUiThread(() -> {
+                        showSettingsPage();
+                        if (backupStatus != null) backupStatus.setText(scheduled
+                                ? "已恢复 " + backup.tasks.size() + " 项，请在提醒状态检查中核对系统权限"
+                                : "数据已恢复，但部分提醒未能安排；请到提醒状态检查中核对");
+                        toast(scheduled ? "已恢复备份" : "提醒安排失败");
+                    });
+                } catch (IOException error) {
+                    runOnUiThread(() -> toast("恢复失败：" + error.getMessage()));
+                }
+            }).start();
+        });
     }
 
     private long nextReminderAt() {

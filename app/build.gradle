@@ -9,7 +9,7 @@ android {
         applicationId 'com.todomaster.app'
         minSdk 26
         targetSdk 35
-        versionCode 37
-        versionName '3.16'
+        versionCode 41
+        versionName '3.20'
     }
 }

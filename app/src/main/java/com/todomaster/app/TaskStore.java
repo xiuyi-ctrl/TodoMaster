@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Calendar;
 
 final class TaskStore extends SQLiteOpenHelper {
+    private final Context context;
     static final class Task {
         long id, dueAt, remindAt, snoozeAt, deletedAt, createdAt;
         int repeatDays;
@@ -18,7 +19,7 @@ final class TaskStore extends SQLiteOpenHelper {
         boolean done, deleted, timed, paused;
     }
 
-    TaskStore(Context context) { super(context, "tasks.db", null, 7); }
+    TaskStore(Context context) { super(context, "tasks.db", null, 7); this.context = context.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db) {
         db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', snooze_at INTEGER NOT NULL DEFAULT 0, repeat_days INTEGER NOT NULL DEFAULT 0, timed INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
@@ -42,6 +43,29 @@ final class TaskStore extends SQLiteOpenHelper {
 
     long save(Task task) {
         if (task.id == 0 && task.createdAt == 0) task.createdAt = System.currentTimeMillis();
+        ContentValues values = values(task);
+        if (task.id == 0) task.id = getWritableDatabase().insertOrThrow("tasks", null, values);
+        else getWritableDatabase().update("tasks", values, "id=?", new String[]{String.valueOf(task.id)});
+        WidgetProvider.requestRefresh(context);
+        return task.id;
+    }
+
+    void replaceAll(List<Task> tasks) {
+        SQLiteDatabase db = getWritableDatabase();
+        db.beginTransaction();
+        try {
+            db.delete("tasks", null, null);
+            for (Task task : tasks) {
+                ContentValues values = values(task);
+                values.put("id", task.id);
+                db.insertOrThrow("tasks", null, values);
+            }
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+        WidgetProvider.requestRefresh(context);
+    }
+
+    private ContentValues values(Task task) {
         ContentValues values = new ContentValues();
         values.put("title", task.title);
         values.put("note", task.note);
@@ -63,9 +87,7 @@ final class TaskStore extends SQLiteOpenHelper {
         values.put("deleted", task.deleted ? 1 : 0);
         values.put("deleted_at", task.deletedAt);
         values.put("created_at", task.createdAt);
-        if (task.id == 0) task.id = getWritableDatabase().insertOrThrow("tasks", null, values);
-        else getWritableDatabase().update("tasks", values, "id=?", new String[]{String.valueOf(task.id)});
-        return task.id;
+        return values;
     }
 
     Task get(long id) {
@@ -82,8 +104,20 @@ final class TaskStore extends SQLiteOpenHelper {
         return result;
     }
 
+    List<Task> snapshot() {
+        SQLiteDatabase db = getReadableDatabase();
+        db.beginTransaction();
+        try {
+            List<Task> tasks = all(false);
+            tasks.addAll(all(true));
+            db.setTransactionSuccessful();
+            return tasks;
+        } finally { db.endTransaction(); }
+    }
+
     void deletePermanently(long id) {
         getWritableDatabase().delete("tasks", "id=? AND deleted=1", new String[]{String.valueOf(id)});
+        WidgetProvider.requestRefresh(context);
     }
 
     boolean complete(Task task) {
@@ -94,6 +128,7 @@ final class TaskStore extends SQLiteOpenHelper {
                 new String[]{String.valueOf(task.id)}) == 0) return false;
         task.done = true;
         if (!task.timed) task.repeatDays = 0;
+        WidgetProvider.requestRefresh(context);
         return true;
     }
 
