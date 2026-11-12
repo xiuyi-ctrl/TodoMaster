@@ -227,7 +227,8 @@ public final class MainActivity extends Activity {
         back.setOnClickListener(v -> { if (settingsPage.equals("home")) showHome(); else showSettings(); });
         TextView heading = text(settingsPage.equals("date") ? "日期选择方式"
                 : settingsPage.equals("exact") ? "精准提醒"
-                : settingsPage.equals("sound") ? "提醒声音" : "设置", 23, NAVY, true);
+                : settingsPage.equals("sound") ? "提醒声音"
+                : settingsPage.equals("volume") ? "提示音量" : "设置", 23, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
         header.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
@@ -259,7 +260,22 @@ public final class MainActivity extends Activity {
             String mode = ReminderSound.mode(this);
             addSettingsEntry(content, "提醒声音", "custom".equals(mode) ? "自定义音频"
                     : "system".equals(mode) ? "系统默认提示音" : "咻咿提示音", "sound", R.drawable.ic_settings);
+            addSettingsEntry(content, "提示音量", "随系统通知音量调整", "volume", R.drawable.ic_volume);
             return;
+        }
+        if (settingsPage.equals("volume")) {
+            LinearLayout volumeGroup = formGroup(content);
+            volumeGroup.addView(section("提示音量"));
+            volumeGroup.addView(text("提醒通过 Android 通知播放，音量由手机的通知音量控制；部分手机与铃声音量联动。", 14, MUTED, false));
+            TextView openSound = primary("打开系统声音设置");
+            LinearLayout.LayoutParams soundParams = new LinearLayout.LayoutParams(-1, dp(46));
+            soundParams.topMargin = dp(14);
+            volumeGroup.addView(openSound, soundParams);
+            openSound.setOnClickListener(v -> {
+                Intent intent = new Intent(Settings.ACTION_SOUND_SETTINGS);
+                if (intent.resolveActivity(getPackageManager()) != null) startActivity(intent);
+                else toast("请在手机设置中调整通知音量");
+            });
         }
         if (settingsPage.equals("date")) {
         LinearLayout group = formGroup(content);
@@ -925,9 +941,16 @@ public final class MainActivity extends Activity {
         }
 
         if (task.timed && task.repeatDays > 0) {
-            TextView pause = text(task.paused ? "继续定时任务" : "暂停定时任务", 15, VIOLET, true);
+            LinearLayout pause = row();
             pause.setGravity(Gravity.CENTER_VERTICAL);
-            pause.setPadding(dp(16), 0, 0, 0);
+            pause.setPadding(dp(12), 0, dp(10), 0);
+            ImageView pauseIcon = new ImageView(this);
+            pauseIcon.setImageResource(task.paused ? R.drawable.ic_play : R.drawable.ic_pause);
+            pauseIcon.setColorFilter(VIOLET);
+            pause.addView(pauseIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+            TextView pauseLabel = text(task.paused ? "继续定时任务" : "暂停定时任务", 15, VIOLET, true);
+            pauseLabel.setPadding(dp(12), 0, 0, 0);
+            pause.addView(pauseLabel);
             menu.addView(pause, new LinearLayout.LayoutParams(-1, dp(48)));
             pause.setOnClickListener(v -> {
                 popup.dismiss();
