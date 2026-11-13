@@ -12,7 +12,7 @@ import java.util.Calendar;
 final class TaskStore extends SQLiteOpenHelper {
     private final Context context;
     static final class Task {
-        long id, dueAt, remindAt, snoozeAt, deletedAt, createdAt;
+        long id, dueAt, remindAt, snoozeAt, deletedAt, createdAt, sortOrder;
         int repeatDays;
         final List<Long> reminderTimes = new ArrayList<>();
         final List<Subtask> subtasks = new ArrayList<>();
@@ -26,10 +26,10 @@ final class TaskStore extends SQLiteOpenHelper {
         boolean done;
     }
 
-    TaskStore(Context context) { super(context, "tasks.db", null, 8); this.context = context.getApplicationContext(); }
+    TaskStore(Context context) { super(context, "tasks.db", null, 9); this.context = context.getApplicationContext(); }
 
     @Override public void onCreate(SQLiteDatabase db) {
-        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', snooze_at INTEGER NOT NULL DEFAULT 0, repeat_days INTEGER NOT NULL DEFAULT 0, timed INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0)");
+        db.execSQL("CREATE TABLE tasks (id INTEGER PRIMARY KEY AUTOINCREMENT, title TEXT NOT NULL, note TEXT NOT NULL, category TEXT NOT NULL, priority TEXT NOT NULL, due_at INTEGER NOT NULL, remind_at INTEGER NOT NULL, reminder_times TEXT NOT NULL DEFAULT '', snooze_at INTEGER NOT NULL DEFAULT 0, repeat_days INTEGER NOT NULL DEFAULT 0, timed INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0, done INTEGER NOT NULL DEFAULT 0, deleted INTEGER NOT NULL DEFAULT 0, deleted_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL DEFAULT 0, sort_order INTEGER NOT NULL DEFAULT 0)");
         createSubtasks(db);
     }
 
@@ -53,10 +53,15 @@ final class TaskStore extends SQLiteOpenHelper {
             db.execSQL("UPDATE tasks SET timed=1 WHERE repeat_days>0 AND done=0");
         }
         if (oldVersion < 8) createSubtasks(db);
+        if (oldVersion < 9) {
+            db.execSQL("ALTER TABLE tasks ADD COLUMN sort_order INTEGER NOT NULL DEFAULT 0");
+            db.execSQL("UPDATE tasks SET sort_order=created_at WHERE sort_order=0");
+        }
     }
 
     long save(Task task) {
         if (task.id == 0 && task.createdAt == 0) task.createdAt = System.currentTimeMillis();
+        if (task.id == 0 && task.sortOrder == 0) task.sortOrder = nextSortOrder();
         ContentValues values = values(task);
         if (task.id == 0) task.id = getWritableDatabase().insertOrThrow("tasks", null, values);
         else getWritableDatabase().update("tasks", values, "id=?", new String[]{String.valueOf(task.id)});
@@ -69,10 +74,45 @@ final class TaskStore extends SQLiteOpenHelper {
         db.beginTransaction();
         try {
             if (task.id == 0 && task.createdAt == 0) task.createdAt = System.currentTimeMillis();
+            if (task.id == 0 && task.sortOrder == 0) task.sortOrder = nextSortOrder();
             if (task.id == 0) task.id = db.insertOrThrow("tasks", null, values(task));
             else db.update("tasks", values(task), "id=?", new String[]{String.valueOf(task.id)});
             db.delete("subtasks", "task_id=?", new String[]{String.valueOf(task.id)});
             insertSubtasks(db, task);
+            db.setTransactionSuccessful();
+        } finally { db.endTransaction(); }
+        WidgetProvider.requestRefresh(context);
+    }
+
+    private long nextSortOrder() {
+        try (Cursor cursor = getReadableDatabase().rawQuery("SELECT MAX(sort_order) FROM tasks", null)) {
+            return cursor.moveToFirst() && !cursor.isNull(0) ? cursor.getLong(0) + 1 : System.currentTimeMillis();
+        }
+    }
+
+    void moveTo(long movingId, long targetId, boolean after, boolean timed) {
+        List<Task> tasks = all(false);
+        List<Task> ordered = new ArrayList<>();
+        Task moving = null;
+        for (Task task : tasks) {
+            if (task.timed != timed) continue;
+            if (task.id == movingId) moving = task;
+            else ordered.add(task);
+        }
+        if (moving == null) return;
+        int target = -1;
+        for (int i = 0; i < ordered.size(); i++) if (ordered.get(i).id == targetId) { target = i; break; }
+        if (target < 0) return;
+        ordered.add(target + (after ? 1 : 0), moving);
+        SQLiteDatabase db = getWritableDatabase();
+        long top = nextSortOrder() + ordered.size();
+        db.beginTransaction();
+        try {
+            for (Task task : ordered) {
+                ContentValues values = new ContentValues();
+                values.put("sort_order", top--);
+                db.update("tasks", values, "id=?", new String[]{String.valueOf(task.id)});
+            }
             db.setTransactionSuccessful();
         } finally { db.endTransaction(); }
         WidgetProvider.requestRefresh(context);
@@ -132,6 +172,7 @@ final class TaskStore extends SQLiteOpenHelper {
         values.put("deleted", task.deleted ? 1 : 0);
         values.put("deleted_at", task.deletedAt);
         values.put("created_at", task.createdAt);
+        values.put("sort_order", task.sortOrder);
         return values;
     }
 
@@ -143,7 +184,7 @@ final class TaskStore extends SQLiteOpenHelper {
 
     List<Task> all(boolean deleted) {
         List<Task> result = new ArrayList<>();
-        try (Cursor cursor = getReadableDatabase().query("tasks", null, "deleted=?", new String[]{deleted ? "1" : "0"}, null, null, deleted ? "deleted_at DESC, id DESC" : "created_at DESC, id DESC")) {
+        try (Cursor cursor = getReadableDatabase().query("tasks", null, "deleted=?", new String[]{deleted ? "1" : "0"}, null, null, deleted ? "deleted_at DESC, id DESC" : "sort_order DESC, id DESC")) {
             while (cursor.moveToNext()) result.add(read(cursor));
         }
         return result;
@@ -263,6 +304,7 @@ final class TaskStore extends SQLiteOpenHelper {
         t.deleted = c.getInt(c.getColumnIndexOrThrow("deleted")) != 0;
         t.deletedAt = c.getLong(c.getColumnIndexOrThrow("deleted_at"));
         t.createdAt = c.getLong(c.getColumnIndexOrThrow("created_at"));
+        t.sortOrder = c.getLong(c.getColumnIndexOrThrow("sort_order"));
         t.repeatDays = c.getInt(c.getColumnIndexOrThrow("repeat_days"));
         t.timed = c.getInt(c.getColumnIndexOrThrow("timed")) != 0;
         t.paused = c.getInt(c.getColumnIndexOrThrow("paused")) != 0;

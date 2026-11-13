@@ -178,7 +178,7 @@ final class LocalBackup {
     private static JSONObject toJson(Data data) throws JSONException {
         JSONObject root = new JSONObject();
         root.put("format", FORMAT);
-        root.put("schemaVersion", 2);
+        root.put("schemaVersion", 3);
         root.put("exportedAt", data.exportedAt);
         JSONObject settings = new JSONObject();
         settings.put("dateMode", data.dateMode);
@@ -206,6 +206,7 @@ final class LocalBackup {
             item.put("deleted", task.deleted);
             item.put("deletedAt", task.deletedAt);
             item.put("createdAt", task.createdAt);
+            item.put("sortOrder", task.sortOrder);
             JSONArray subtasks = new JSONArray();
             for (TaskStore.Subtask child : task.subtasks) {
                 subtasks.put(new JSONObject().put("id", child.id).put("title", child.title)
@@ -222,7 +223,7 @@ final class LocalBackup {
     private static Data fromJson(JSONObject root) throws IOException, JSONException {
         if (!FORMAT.equals(root.optString("format"))) throw new IOException("这不是咻咿待办备份");
         int version = root.optInt("schemaVersion", -1);
-        if (version != 1 && version != 2) throw new IOException("备份版本不受支持");
+        if (version != 1 && version != 2 && version != 3) throw new IOException("备份版本不受支持");
         Data data = new Data();
         data.exportedAt = root.getLong("exportedAt");
         JSONObject settings = root.getJSONObject("settings");
@@ -258,13 +259,14 @@ final class LocalBackup {
             task.deleted = item.getBoolean("deleted");
             task.deletedAt = item.getLong("deletedAt");
             task.createdAt = item.getLong("createdAt");
+            task.sortOrder = version >= 3 ? item.getLong("sortOrder") : task.createdAt;
             if (task.id < 1 || !ids.add(task.id) || task.title.trim().isEmpty() || task.dueAt < 0
-                    || task.repeatDays < 0 || task.deletedAt < 0 || task.createdAt < 0
+                    || task.repeatDays < 0 || task.deletedAt < 0 || task.createdAt < 0 || task.sortOrder < 0
                     || !isCategory(task.category) || !isPriority(task.priority)) throw new IOException("备份中的待办数据无效");
             for (long time : task.reminderTimes) {
                 if (time <= 0 || task.dueAt <= 0 || time >= task.dueAt) throw new IOException("备份中的提醒时间无效");
             }
-            if (version == 2) {
+            if (version >= 2) {
                 JSONArray children = item.getJSONArray("subtasks");
                 for (int j = 0; j < children.length(); j++) {
                     JSONObject childItem = children.getJSONObject(j);

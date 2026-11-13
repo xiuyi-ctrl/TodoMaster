@@ -11,6 +11,7 @@ import android.app.NotificationManager;
 import android.app.DatePickerDialog;
 import android.app.TimePickerDialog;
 import android.content.Intent;
+import android.content.ClipData;
 import android.content.pm.PackageManager;
 import android.content.res.ColorStateList;
 import android.database.Cursor;
@@ -33,6 +34,7 @@ import android.text.TextUtils;
 import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
+import android.view.DragEvent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
@@ -874,6 +876,36 @@ public final class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         list = column();
         list.setPadding(0, dp(8), 0, dp(8));
+        if (!trash && !searching) list.setOnDragListener((view, event) -> {
+            if (event.getAction() == DragEvent.ACTION_DRAG_STARTED)
+                return event.getLocalState() instanceof Long;
+            if (event.getAction() == DragEvent.ACTION_DRAG_LOCATION) {
+                float screenY = event.getY() - scroll.getScrollY();
+                if (screenY < dp(48)) scroll.scrollBy(0, -dp(16));
+                else if (screenY > scroll.getHeight() - dp(48)) scroll.scrollBy(0, dp(16));
+                return true;
+            }
+            if (event.getAction() == DragEvent.ACTION_DROP && list.getChildCount() > 0) {
+                long movingId = (Long) event.getLocalState();
+                View target = list.getChildAt(list.getChildCount() - 1);
+                boolean after = true;
+                for (int i = 0; i < list.getChildCount(); i++) {
+                    View child = list.getChildAt(i);
+                    if (event.getY() < child.getTop() + child.getHeight() / 2f) {
+                        target = child;
+                        after = false;
+                        break;
+                    }
+                }
+                if (target.getTag() instanceof Long) {
+                    long targetId = (Long) target.getTag();
+                    boolean placeAfter = after;
+                    list.post(() -> { store.moveTo(movingId, targetId, placeAfter, timedPage); render(); });
+                }
+                return true;
+            }
+            return true;
+        });
         scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         if (!trash && !searching) {
@@ -1104,6 +1136,7 @@ public final class MainActivity extends Activity {
         cardBackground.setStroke(dp(1), Color.rgb(238, 230, 235));
         card.setBackground(cardBackground);
         card.setElevation(dp(1));
+        card.setTag(task.id);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.bottomMargin = dp(8);
         list.addView(card, params);
@@ -1118,6 +1151,17 @@ public final class MainActivity extends Activity {
         TextView title = text(task.title, 17, task.done ? MUTED : NAVY, true);
         title.setGravity(Gravity.CENTER_VERTICAL);
         top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        if (!searching) {
+            TextView handle = text("☰", 21, BLUE, false);
+            handle.setGravity(Gravity.CENTER);
+            handle.setContentDescription("长按拖动调整任务顺序");
+            top.addView(handle, new LinearLayout.LayoutParams(dp(40), dp(48)));
+            handle.setOnLongClickListener(v -> {
+                card.startDragAndDrop(ClipData.newPlainText("task", String.valueOf(task.id)),
+                        new View.DragShadowBuilder(card), task.id, 0);
+                return true;
+            });
+        }
         check.setOnCheckedChangeListener((button, checked) -> {
             if (checked) {
                 store.complete(task);
