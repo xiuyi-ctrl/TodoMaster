@@ -35,6 +35,7 @@ import android.text.TextWatcher;
 import android.view.Gravity;
 import android.view.View;
 import android.view.DragEvent;
+import android.view.MotionEvent;
 import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.animation.DecelerateInterpolator;
@@ -111,6 +112,9 @@ public final class MainActivity extends Activity {
     private boolean searching;
     private boolean settings;
     private boolean timedPage;
+    private boolean calendarPage;
+    private boolean calendarOriginTimed;
+    private final Calendar calendarSelected = Calendar.getInstance();
     private String settingsPage = "home";
     private boolean editing;
     private ValueAnimator taskAnimator;
@@ -150,7 +154,8 @@ public final class MainActivity extends Activity {
                 advanced = true;
             }
         }
-        if (advanced && !editing && !trash && !searching && !settings) showHome();
+        if (advanced && calendarPage && !editing) showCalendar();
+        else if (advanced && !editing && !trash && !searching && !settings) showHome();
         boolean allowed = ReminderScheduler.canScheduleExactly(this);
         if (allowed != exactAlarmAllowed) {
             exactAlarmAllowed = allowed;
@@ -232,7 +237,8 @@ public final class MainActivity extends Activity {
     }
 
     @Override public void onBackPressed() {
-        if (editing) { editing = false; showHome(); }
+        if (editing) { editing = false; if (calendarPage) showCalendar(); else showHome(); }
+        else if (calendarPage) showHome();
         else if (trash) { trash = false; showHome(); }
         else if (searching) { searching = false; query = ""; showHome(); }
         else if (settings) { if (settingsPage.equals("home")) showHome(); else showSettings(); }
@@ -721,6 +727,8 @@ public final class MainActivity extends Activity {
     }
 
     private void showHome() {
+        if (calendarPage) timedPage = calendarOriginTimed;
+        calendarPage = false;
         cancelTaskAnimation();
         settings = false;
         filterTransitionToken++;
@@ -767,9 +775,10 @@ public final class MainActivity extends Activity {
             menu.setGravity(Gravity.CENTER);
             header.addView(menu, new LinearLayout.LayoutParams(dp(48), dp(48)));
             menu.setOnClickListener(v -> {
-                showChoiceMenu(menu, 168, new String[]{"回收站", "设置"},
-                        new int[]{R.drawable.ic_trash, R.drawable.ic_settings},
-                        new Runnable[]{() -> { trash = true; showHome(); }, this::showSettings});
+                showChoiceMenu(menu, 168, new String[]{"日历", "回收站", "设置"},
+                        new int[]{R.drawable.ic_calendar, R.drawable.ic_trash, R.drawable.ic_settings},
+                        new Runnable[]{() -> { calendarOriginTimed = timedPage; showCalendar(); },
+                                () -> { trash = true; showHome(); }, this::showSettings});
             });
         }
         root.addView(header);
@@ -914,6 +923,257 @@ public final class MainActivity extends Activity {
             add.setOnClickListener(v -> edit(null));
         }
         render();
+    }
+
+    private static final class CalendarEvent {
+        final TaskStore.Task task;
+        final long time;
+        final boolean done;
+        CalendarEvent(TaskStore.Task task, long time, boolean done) {
+            this.task = task; this.time = time; this.done = done;
+        }
+    }
+
+    private long dayStart(Calendar date) {
+        Calendar start = (Calendar) date.clone();
+        start.set(Calendar.HOUR_OF_DAY, 0);
+        start.set(Calendar.MINUTE, 0);
+        start.set(Calendar.SECOND, 0);
+        start.set(Calendar.MILLISECOND, 0);
+        return start.getTimeInMillis();
+    }
+
+    private List<CalendarEvent> calendarEvents(List<TaskStore.Task> tasks, long start, long end) {
+        List<CalendarEvent> events = new ArrayList<>();
+        for (TaskStore.Task task : tasks) {
+            if (task.timed || task.dueAt <= 0) continue;
+            if (task.dueAt >= start && task.dueAt < end) events.add(new CalendarEvent(task, task.dueAt, task.done));
+        }
+        events.sort((a, b) -> {
+            int time = Long.compare(a.time, b.time);
+            return time != 0 ? time : Long.compare(b.task.sortOrder, a.task.sortOrder);
+        });
+        return events;
+    }
+
+    private void showCalendar() {
+        calendarPage = true;
+        editing = false;
+        LinearLayout root = column();
+        root.setBackgroundColor(BACKGROUND);
+        setScreen(root, gutter());
+        LinearLayout header = row();
+        TextView back = text("‹", 34, NAVY, false);
+        back.setGravity(Gravity.CENTER);
+        header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(52)));
+        back.setOnClickListener(v -> showHome());
+        TextView heading = text("日历", 24, NAVY, true);
+        heading.setGravity(Gravity.CENTER);
+        header.addView(heading, new LinearLayout.LayoutParams(0, dp(52), 1));
+        header.addView(cloud(), new LinearLayout.LayoutParams(dp(48), dp(48)));
+        root.addView(header);
+
+        LinearLayout monthCard = column();
+        monthCard.setPadding(dp(8), dp(10), dp(8), dp(12));
+        monthCard.setBackground(shape(Color.WHITE, 20, Color.rgb(225, 214, 244)));
+        LinearLayout.LayoutParams monthParams = new LinearLayout.LayoutParams(-1, -2);
+        monthParams.topMargin = dp(12);
+        root.addView(monthCard, monthParams);
+        LinearLayout controls = row();
+        monthCard.addView(controls, new LinearLayout.LayoutParams(-1, dp(48)));
+        TextView previous = text("‹", 30, VIOLET, false);
+        previous.setGravity(Gravity.CENTER);
+        controls.addView(previous, new LinearLayout.LayoutParams(dp(48), -1));
+        TextView month = text("", 19, NAVY, true);
+        month.setGravity(Gravity.CENTER);
+        controls.addView(month, new LinearLayout.LayoutParams(0, -1, 1));
+        TextView next = text("›", 30, VIOLET, false);
+        next.setGravity(Gravity.CENTER);
+        controls.addView(next, new LinearLayout.LayoutParams(dp(48), -1));
+        TextView today = text("今天", 13, VIOLET, true);
+        today.setGravity(Gravity.CENTER);
+        today.setBackground(shape(PALE, 18, 0));
+        controls.addView(today, new LinearLayout.LayoutParams(dp(48), dp(38)));
+        previous.setOnClickListener(v -> { calendarSelected.add(Calendar.MONTH, -1); showCalendar(); });
+        next.setOnClickListener(v -> { calendarSelected.add(Calendar.MONTH, 1); showCalendar(); });
+        today.setOnClickListener(v -> { calendarSelected.setTimeInMillis(System.currentTimeMillis()); showCalendar(); });
+        LinearLayout weekdays = row();
+        weekdays.setBackground(shape(PALE, 10, 0));
+        monthCard.addView(weekdays, new LinearLayout.LayoutParams(-1, dp(34)));
+        for (String day : new String[]{"一", "二", "三", "四", "五", "六", "日"}) {
+            TextView label = text(day, 13, NAVY, true);
+            label.setGravity(Gravity.CENTER);
+            weekdays.addView(label, new LinearLayout.LayoutParams(0, -1, 1));
+        }
+        LinearLayout grid = column();
+        monthCard.addView(grid);
+        LinearLayout dayHeading = row();
+        LinearLayout.LayoutParams dayParams = new LinearLayout.LayoutParams(-1, dp(50));
+        dayParams.topMargin = dp(12);
+        root.addView(dayHeading, dayParams);
+        ScrollView scroll = new ScrollView(this);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setDescendantFocusability(android.view.ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        LinearLayout agenda = column();
+        scroll.addView(agenda);
+        root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        scroll.post(() -> scroll.scrollTo(0, 0));
+        TextView add = primary("＋ 新建待办");
+        root.addView(add, new LinearLayout.LayoutParams(-1, dp(52)));
+        add.setOnClickListener(v -> { timedPage = false; edit(null); });
+
+        List<TaskStore.Task> tasks = store.all(false);
+        month.setText(calendarSelected.get(Calendar.YEAR) + "年" + (calendarSelected.get(Calendar.MONTH) + 1) + "月");
+        Calendar first = (Calendar) calendarSelected.clone();
+        first.set(Calendar.DAY_OF_MONTH, 1);
+        int offset = (first.get(Calendar.DAY_OF_WEEK) + 5) % 7;
+        first.add(Calendar.DAY_OF_MONTH, -offset);
+        long selectedStart = dayStart(calendarSelected);
+        Calendar now = Calendar.getInstance();
+        long todayStart = dayStart(now);
+        for (int week = 0; week < 6; week++) {
+            LinearLayout weekRow = row();
+            grid.addView(weekRow, new LinearLayout.LayoutParams(-1, dp(48)));
+            for (int column = 0; column < 7; column++) {
+                Calendar day = (Calendar) first.clone();
+                day.add(Calendar.DAY_OF_MONTH, week * 7 + column);
+                long start = dayStart(day);
+                Calendar following = (Calendar) day.clone();
+                following.add(Calendar.DAY_OF_MONTH, 1);
+                List<CalendarEvent> dayEvents = calendarEvents(tasks, start, dayStart(following));
+                int count = dayEvents.size();
+                LinearLayout cell = column();
+                cell.setGravity(Gravity.CENTER);
+                if (start == selectedStart) cell.setBackground(shape(BLUE, 22, 0));
+                else if (start == todayStart) cell.setBackground(shape(PALE, 22, VIOLET));
+                weekRow.addView(cell, new LinearLayout.LayoutParams(0, -1, 1));
+                int color = start == selectedStart ? Color.WHITE : day.get(Calendar.MONTH) == calendarSelected.get(Calendar.MONTH) ? NAVY : MUTED;
+                TextView number = text(String.valueOf(day.get(Calendar.DAY_OF_MONTH)), 16, color, start == selectedStart);
+                number.setGravity(Gravity.CENTER);
+                cell.addView(number);
+                LinearLayout markers = row();
+                markers.setGravity(Gravity.CENTER);
+                cell.addView(markers, new LinearLayout.LayoutParams(-1, dp(10)));
+                if (count > 3) {
+                    TextView more = text(count + "项", 10, start == selectedStart ? Color.WHITE : VIOLET, true);
+                    markers.addView(more);
+                } else for (CalendarEvent event : dayEvents) {
+                    int dotColor = start == selectedStart ? Color.WHITE : event.done ? Color.rgb(95, 170, 133)
+                            : event.time < System.currentTimeMillis() ? Color.rgb(229, 105, 96) : VIOLET;
+                    View dot = new View(this);
+                    dot.setBackground(shape(dotColor, 3, 0));
+                    LinearLayout.LayoutParams dotParams = new LinearLayout.LayoutParams(dp(5), dp(5));
+                    dotParams.leftMargin = dp(2);
+                    markers.addView(dot, dotParams);
+                }
+                cell.setContentDescription((day.get(Calendar.MONTH) + 1) + "月" + day.get(Calendar.DAY_OF_MONTH) + "日，" + count + "项安排");
+                cell.setOnClickListener(v -> { calendarSelected.setTimeInMillis(day.getTimeInMillis()); showCalendar(); });
+                final float[] touchX = {0};
+                cell.setOnTouchListener((view, motion) -> {
+                    if (motion.getAction() == MotionEvent.ACTION_DOWN) { touchX[0] = motion.getRawX(); return true; }
+                    if (motion.getAction() == MotionEvent.ACTION_UP) {
+                        float distance = motion.getRawX() - touchX[0];
+                        if (Math.abs(distance) > dp(50)) {
+                            calendarSelected.add(Calendar.MONTH, distance < 0 ? 1 : -1);
+                            showCalendar();
+                        } else view.performClick();
+                        return true;
+                    }
+                    return true;
+                });
+            }
+        }
+        Calendar following = (Calendar) calendarSelected.clone();
+        following.add(Calendar.DAY_OF_MONTH, 1);
+        List<CalendarEvent> selected = calendarEvents(tasks, selectedStart, dayStart(following));
+        TextView dayTitle = text((calendarSelected.get(Calendar.MONTH) + 1) + "月" + calendarSelected.get(Calendar.DAY_OF_MONTH)
+                + "日 · 周" + "日一二三四五六".charAt(calendarSelected.get(Calendar.DAY_OF_WEEK) - 1), 19, NAVY, true);
+        dayHeading.addView(dayTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView dayCount = text(selected.size() + "项安排", 13, VIOLET, true);
+        dayCount.setGravity(Gravity.CENTER);
+        dayCount.setPadding(dp(12), dp(7), dp(12), dp(7));
+        dayCount.setBackground(shape(PALE, 18, 0));
+        dayHeading.addView(dayCount);
+        if (selected.isEmpty()) {
+            TextView empty = text("☁  这一天还没有安排", 15, MUTED, false);
+            empty.setGravity(Gravity.CENTER);
+            agenda.addView(empty, new LinearLayout.LayoutParams(-1, dp(120)));
+        }
+        for (CalendarEvent event : selected) {
+            TaskStore.Task task = event.task;
+            LinearLayout card = column();
+            boolean overdue = !event.done && event.time < System.currentTimeMillis();
+            card.setPadding(dp(16), dp(12), dp(16), dp(12));
+            card.setBackground(shape(event.done ? Color.rgb(244, 252, 247)
+                    : overdue ? Color.rgb(255, 248, 245) : Color.WHITE, 18,
+                    event.done ? MINT : overdue ? CORAL : Color.rgb(225, 214, 244)));
+            LinearLayout.LayoutParams cardParams = new LinearLayout.LayoutParams(-1, -2);
+            cardParams.bottomMargin = dp(8);
+            agenda.addView(card, cardParams);
+            LinearLayout titleRow = row();
+            card.addView(titleRow);
+            TextView check = text(event.done ? "✓" : "□", 23, event.done ? Color.rgb(95, 170, 133) : VIOLET, true);
+            check.setGravity(Gravity.CENTER);
+            titleRow.addView(check, new LinearLayout.LayoutParams(dp(34), dp(42)));
+            TextView title = text(task.title, 17, NAVY, true);
+            title.setMaxLines(2);
+            titleRow.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            if (overdue) {
+                TextView overdueBadge = text("已逾期", 12, Color.rgb(210, 91, 78), true);
+                overdueBadge.setPadding(dp(8), dp(4), dp(8), dp(4));
+                overdueBadge.setBackground(shape(Color.rgb(255, 233, 225), 12, 0));
+                titleRow.addView(overdueBadge);
+            }
+            LinearLayout detailRow = row();
+            detailRow.setPadding(dp(34), dp(3), 0, 0);
+            card.addView(detailRow);
+            int categoryColor = "日常".equals(task.category) ? MINT : "生活".equals(task.category) ? CORAL : PALE;
+            TextView category = text(task.category, 13, "日常".equals(task.category) ? Color.rgb(66, 150, 112) : VIOLET, true);
+            category.setPadding(dp(10), dp(4), dp(10), dp(4));
+            category.setBackground(shape(categoryColor, 13, 0));
+            detailRow.addView(category);
+            ImageView clock = new ImageView(this);
+            clock.setImageResource(R.drawable.ic_clock);
+            clock.setColorFilter(MUTED);
+            LinearLayout.LayoutParams clockParams = new LinearLayout.LayoutParams(dp(16), dp(16));
+            clockParams.leftMargin = dp(12);
+            detailRow.addView(clock, clockParams);
+            TextView time = text(timeOnly.format(new Date(event.time)), 13, MUTED, false);
+            time.setPadding(dp(5), 0, 0, 0);
+            detailRow.addView(time);
+            card.setOnClickListener(v -> showCalendarDetail(event));
+        }
+    }
+
+    private void showCalendarDetail(CalendarEvent event) {
+        TaskStore.Task task = event.task;
+        LinearLayout content = column();
+        content.setPadding(dp(24), dp(22), dp(24), dp(18));
+        content.setBackground(shape(Color.WHITE, 24, 0));
+        content.addView(text(task.title, 20, NAVY, true));
+        String details = "待办 · " + task.category + " · " + task.priority + "优先级\n"
+                + dateTime.format(new Date(event.time)) + (event.done ? " · 已完成" : " · 未完成");
+        if (task.note != null && !task.note.isEmpty()) details += "\n\n" + task.note;
+        if (!task.subtasks.isEmpty()) {
+            details += "\n\n子任务";
+            for (TaskStore.Subtask child : task.subtasks) details += "\n" + (child.done ? "✓ " : "□ ") + child.title;
+        }
+        TextView description = text(details, 15, MUTED, false);
+        description.setPadding(0, dp(12), 0, dp(18));
+        content.addView(description);
+        LinearLayout actions = row();
+        content.addView(actions);
+        TextView close = text("关闭", 15, VIOLET, true);
+        close.setGravity(Gravity.CENTER);
+        actions.addView(close, new LinearLayout.LayoutParams(0, dp(48), 1));
+        TextView editButton = primary("编辑");
+        actions.addView(editButton, new LinearLayout.LayoutParams(0, dp(48), 1));
+        AlertDialog dialog = new AlertDialog.Builder(this).setView(content).create();
+        dialog.show();
+        dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
+        dialog.getWindow().setLayout(getResources().getDisplayMetrics().widthPixels - dp(32), -2);
+        close.setOnClickListener(v -> dialog.dismiss());
+        editButton.setOnClickListener(v -> { dialog.dismiss(); edit(task); });
     }
 
     private int filterIndex(String value) {
@@ -1514,6 +1774,14 @@ public final class MainActivity extends Activity {
         if (list != null) list.animate().cancel();
         editing = true;
         TaskStore.Task task = original == null ? new TaskStore.Task() : original;
+        if (original == null && calendarPage) {
+            Calendar chosen = (Calendar) calendarSelected.clone();
+            chosen.set(Calendar.HOUR_OF_DAY, 18);
+            chosen.set(Calendar.MINUTE, 0);
+            chosen.set(Calendar.SECOND, 0);
+            chosen.set(Calendar.MILLISECOND, 0);
+            task.dueAt = chosen.getTimeInMillis();
+        }
         if (original == null) task.timed = timedPage;
         else timedPage = task.timed;
         boolean timedForm = task.timed;
@@ -1526,7 +1794,7 @@ public final class MainActivity extends Activity {
         TextView back = text("‹", 34, NAVY, false);
         back.setGravity(Gravity.CENTER_VERTICAL);
         header.addView(back, new LinearLayout.LayoutParams(dp(48), dp(52)));
-        back.setOnClickListener(v -> { editing = false; showHome(); });
+        back.setOnClickListener(v -> { editing = false; if (calendarPage) showCalendar(); else showHome(); });
         TextView heading = text(original == null ? timedForm ? "新建定时任务" : "新建待办"
                 : timedForm ? "编辑定时任务" : "编辑待办", 22, NAVY, true);
         heading.setGravity(Gravity.CENTER);
@@ -1777,7 +2045,7 @@ public final class MainActivity extends Activity {
             }
             ReminderScheduler.update(this, task);
             editing = false;
-            showHome();
+            if (calendarPage) showCalendar(); else showHome();
             toast(timedForm ? "已保存定时任务" : "已保存待办");
             if (timedForm || !reminderTimes.isEmpty()) askNotificationPermission();
         });
