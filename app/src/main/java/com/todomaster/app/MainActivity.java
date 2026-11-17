@@ -148,7 +148,7 @@ public final class MainActivity extends Activity {
         super.onResume();
         boolean advanced = false;
         for (TaskStore.Task task : store.all(false)) {
-            if (task.timed && !task.paused && task.repeatDays > 0 && task.dueAt <= System.currentTimeMillis()) {
+            if (task.timed && !task.paused && task.repeatIntervalMinutes > 0 && task.dueAt <= System.currentTimeMillis()) {
                 store.advanceTimed(task);
                 ReminderScheduler.update(this, task);
                 advanced = true;
@@ -642,7 +642,7 @@ public final class MainActivity extends Activity {
             if (task.paused || task.deleted || task.done) continue;
             for (long time : task.reminderTimes) if (time > now && time < next) next = time;
             if (task.snoozeAt > now && task.snoozeAt < next) next = task.snoozeAt;
-            if (task.timed && task.repeatDays > 0 && task.dueAt > now && task.dueAt < next) next = task.dueAt;
+            if (task.timed && task.repeatIntervalMinutes > 0 && task.dueAt > now && task.dueAt < next) next = task.dueAt;
         }
         return next == Long.MAX_VALUE ? 0 : next;
     }
@@ -1405,7 +1405,7 @@ public final class MainActivity extends Activity {
         CheckBox check = new CheckBox(this);
         check.setButtonTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked}, new int[]{}}, new int[]{Color.rgb(95, 170, 133), NAVY}));
         check.setChecked(task.done);
-        if (task.timed && task.repeatDays == 0) check.setEnabled(false);
+        if (task.timed && task.repeatIntervalMinutes == 0) check.setEnabled(false);
         check.setPadding(0, 0, dp(6), 0);
         top.addView(check, new LinearLayout.LayoutParams(dp(48), dp(48)));
         TextView title = text(task.title, 17, task.done ? MUTED : NAVY, true);
@@ -1438,7 +1438,7 @@ public final class MainActivity extends Activity {
         top.addView(more, new LinearLayout.LayoutParams(dp(40), dp(48)));
         card.addView(top);
         more.setOnClickListener(v -> showTaskMenu(more, task));
-        if (!task.timed || task.repeatDays > 0) card.setOnClickListener(v -> edit(task));
+        if (!task.timed || task.repeatIntervalMinutes > 0) card.setOnClickListener(v -> edit(task));
 
         LinearLayout badges = row();
         badges.setPadding(dp(48), 0, 0, dp(4));
@@ -1490,8 +1490,8 @@ public final class MainActivity extends Activity {
             else card.addView(meta(R.drawable.ic_calendar, due, false));
         }
         if (task.remindAt > 0 && !task.done && task.dueAt == 0) card.addView(meta(R.drawable.ic_bell, reminderLabel(task), false));
-        if (task.timed && task.repeatDays > 0) card.addView(meta(R.drawable.ic_clock,
-                task.paused ? "已暂停" : task.repeatDays == 1 ? "每天执行" : task.repeatDays == 7 ? "每周执行" : "每" + task.repeatDays + "天执行", false));
+        if (task.timed && task.repeatIntervalMinutes > 0) card.addView(meta(R.drawable.ic_clock,
+                task.paused ? "已暂停" : "每隔" + advanceLabel(task.repeatIntervalMinutes) + "执行", false));
     }
 
     private void showTaskMenu(View anchor, TaskStore.Task task) {
@@ -1514,12 +1514,12 @@ public final class MainActivity extends Activity {
         TextView editLabel = text(task.timed ? "编辑定时任务" : "编辑待办", 15, VIOLET, true);
         editLabel.setPadding(dp(12), 0, 0, 0);
         editAction.addView(editLabel);
-        if (!task.timed || task.repeatDays > 0) {
+        if (!task.timed || task.repeatIntervalMinutes > 0) {
             menu.addView(editAction, new LinearLayout.LayoutParams(-1, dp(48)));
             editAction.setOnClickListener(v -> { popup.dismiss(); edit(task); });
         }
 
-        if (task.timed && task.repeatDays > 0) {
+        if (task.timed && task.repeatIntervalMinutes > 0) {
             LinearLayout pause = row();
             pause.setGravity(Gravity.CENTER_VERTICAL);
             pause.setPadding(dp(12), 0, dp(10), 0);
@@ -1662,7 +1662,7 @@ public final class MainActivity extends Activity {
         restore.setOnClickListener(v -> {
             task.deleted = false;
             task.deletedAt = 0;
-            if (task.timed && task.repeatDays > 0) {
+            if (task.timed && task.repeatIntervalMinutes > 0) {
                 task.paused = false;
                 store.save(task);
                 store.advanceTimed(task);
@@ -1749,6 +1749,7 @@ public final class MainActivity extends Activity {
         int count = task.reminderTimes.size() + (task.snoozeAt > System.currentTimeMillis() ? 1 : 0);
         if (count > 1) return count + "次提醒";
         if (task.snoozeAt > System.currentTimeMillis()) return "稍后 " + timeOnly.format(new Date(task.snoozeAt));
+        if (task.fixedReminderTimes.contains(task.remindAt)) return "指定 " + timeOnly.format(new Date(task.remindAt));
         long minutes = (task.dueAt - task.remindAt) / 60000;
         for (int i = 1; i < ADVANCE.length; i++) if (ADVANCE[i] == minutes) return "提前" + REMINDERS[i];
         return minutes > 0 ? "提前" + advanceLabel(minutes) : "提醒我";
@@ -1891,7 +1892,7 @@ public final class MainActivity extends Activity {
 
         LinearLayout dueGroup = formGroup(form);
         LinearLayout dueHeading = row();
-        dueHeading.addView(section(timedForm ? original == null ? "首次执行时间" : "下次执行时间" : "截止时间"), new LinearLayout.LayoutParams(0, -2, 1));
+        dueHeading.addView(section(timedForm ? "下次执行时间" : "截止时间"), new LinearLayout.LayoutParams(0, -2, 1));
         TextView clear = text("清除", 12, BLUE, false);
         clear.setGravity(Gravity.CENTER);
         dueHeading.addView(clear, new LinearLayout.LayoutParams(dp(48), dp(28)));
@@ -1910,30 +1911,28 @@ public final class MainActivity extends Activity {
         timeParams.topMargin = dp(4);
         dueGroup.addView(timeRow, timeParams);
 
-        int[] repeatDays = {task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7 ? -1
-                : task.repeatDays > 0 ? task.repeatDays : 1};
-        EditText customRepeat = input("间隔天数", task.repeatDays > 0 && task.repeatDays != 1 && task.repeatDays != 7
-                ? Integer.toString(task.repeatDays) : "", true);
+        long intervalValue = task.repeatIntervalMinutes > 0 ? task.repeatIntervalMinutes : 1440;
+        LinearLayout intervalFields = row();
+        EditText intervalDays = reminderNumber(intervalFields, "天", intervalValue / 1440, 4);
+        EditText intervalHours = reminderNumber(intervalFields, "小时", intervalValue % 1440 / 60, 2);
+        EditText intervalMinutes = reminderNumber(intervalFields, "分钟", intervalValue % 60, 2);
         if (timedForm) {
             LinearLayout repeatGroup = formGroup(form);
-            repeatGroup.addView(section("执行周期"));
-            LinearLayout repeatChoices = row();
-            repeatGroup.addView(horizontal(repeatChoices));
-            customRepeat.setInputType(InputType.TYPE_CLASS_NUMBER);
-            customRepeat.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(3)});
-            repeatGroup.addView(customRepeat, new LinearLayout.LayoutParams(-1, dp(44)));
-            customRepeat.setVisibility(repeatDays[0] == -1 ? View.VISIBLE : View.GONE);
-            String repeatSelected = repeatDays[0] == 1 ? "每天" : repeatDays[0] == 7 ? "每周" : "自定义";
-            fillChoices(repeatChoices, new String[]{"每天", "每周", "自定义"}, repeatSelected, value -> {
-                repeatDays[0] = value.equals("每天") ? 1 : value.equals("每周") ? 7 : -1;
-                customRepeat.setVisibility(value.equals("自定义") ? View.VISIBLE : View.GONE);
-            });
+            repeatGroup.addView(section("执行间隔"));
+            repeatGroup.addView(intervalFields);
+            TextView repeatHint = text("从下次执行时间起，每隔所设时长提醒一次", 13, MUTED, false);
+            repeatHint.setPadding(0, dp(6), 0, 0);
+            repeatGroup.addView(repeatHint);
         }
 
         LinearLayout reminderGroup = formGroup(form);
-        reminderGroup.addView(section(timedForm ? "执行前提醒" : "到期前提醒"));
+        reminderGroup.addView(section("到期前提醒"));
+        if (timedForm) reminderGroup.setVisibility(View.GONE);
         List<Long> advances = new ArrayList<>();
+        List<Long> fixedTimes = timedForm ? new ArrayList<>() : new ArrayList<>(task.fixedReminderTimes);
         for (long timeValue : task.reminderTimes) {
+            if (timedForm) break;
+            if (fixedTimes.contains(timeValue)) continue;
             long minutes = (task.dueAt - timeValue) / 60000;
             if (minutes > 0 && !advances.contains(minutes)) advances.add(minutes);
         }
@@ -1969,11 +1968,26 @@ public final class MainActivity extends Activity {
                 selected.setOnClickListener(view -> {
                     advances.remove(minutes);
                     selectedReminders.removeView(selected);
-                    int count = advances.size() + (snooze[0] > 0 ? 1 : 0);
+                    int count = advances.size() + fixedTimes.size() + (snooze[0] > 0 ? 1 : 0);
                     hint.setText(count == 0 ? "不发送提醒通知" : "已设置 " + count + " 次提醒，点击上方时间可移除");
                 });
             }
-            int count = advances.size() + (snooze[0] > 0 ? 1 : 0);
+            for (long fixed : new ArrayList<>(fixedTimes)) {
+                TextView selected = text("指定 " + dateTime.format(new Date(fixed)) + "    ×", 13, VIOLET, false);
+                selected.setGravity(Gravity.CENTER_VERTICAL);
+                selected.setPadding(dp(12), 0, dp(12), 0);
+                selected.setBackground(shape(PALE, 12, 0));
+                LinearLayout.LayoutParams selectedParams = new LinearLayout.LayoutParams(-1, dp(36));
+                selectedParams.topMargin = dp(6);
+                selectedReminders.addView(selected, selectedParams);
+                selected.setOnClickListener(view -> {
+                    fixedTimes.remove(fixed);
+                    selectedReminders.removeView(selected);
+                    int count = advances.size() + fixedTimes.size() + (snooze[0] > 0 ? 1 : 0);
+                    hint.setText(count == 0 ? "不发送提醒通知" : "已设置 " + count + " 次提醒，点击上方时间可移除");
+                });
+            }
+            int count = advances.size() + fixedTimes.size() + (snooze[0] > 0 ? 1 : 0);
             hint.setText(count == 0 ? "不发送提醒通知" : due[0] == 0
                     ? timedForm ? "请先选择执行时间" : "请先选择截止时间"
                     : "已设置 " + count + " 次提醒，点击上方时间可移除");
@@ -1983,7 +1997,10 @@ public final class MainActivity extends Activity {
             showReminderChoices(minutes -> {
                 if (!advances.contains(minutes)) advances.add(minutes);
                 refreshHint.run();
-            });
+            }, () -> chooseFixedReminder(due[0], fixed -> {
+                if (!fixedTimes.contains(fixed)) fixedTimes.add(fixed);
+                refreshHint.run();
+            }));
         });
         date.setOnClickListener(v -> {
             if (useWheelDatePicker()) pickDueDateTime(due, date, time, refreshHint);
@@ -2003,40 +2020,51 @@ public final class MainActivity extends Activity {
         save.setOnClickListener(v -> {
             String value = title.getText().toString().trim();
             if (value.isEmpty()) { title.setError("请输入任务标题"); return; }
-            if (due[0] > 0 && due[0] <= System.currentTimeMillis()) { toast(timedForm ? "首次执行时间需晚于当前时间" : "截止时间需晚于当前时间"); return; }
-            int interval = timedForm ? repeatDays[0] : 0;
-            if (interval == -1) {
-                try { interval = Integer.parseInt(customRepeat.getText().toString()); }
-                catch (NumberFormatException error) { customRepeat.setError("请输入间隔天数"); return; }
-                if (interval < 1) { customRepeat.setError("间隔至少 1 天"); return; }
+            if (due[0] > 0 && due[0] <= System.currentTimeMillis()) { toast(timedForm ? "下次执行时间需晚于当前时间" : "截止时间需晚于当前时间"); return; }
+            long interval = 0;
+            if (timedForm) {
+                try {
+                    long days = Long.parseLong(intervalDays.getText().toString().isEmpty() ? "0" : intervalDays.getText().toString());
+                    long hours = Long.parseLong(intervalHours.getText().toString().isEmpty() ? "0" : intervalHours.getText().toString());
+                    long minutes = Long.parseLong(intervalMinutes.getText().toString().isEmpty() ? "0" : intervalMinutes.getText().toString());
+                    if (hours > 23) { intervalHours.setError("小时最多 23"); return; }
+                    if (minutes > 59) { intervalMinutes.setError("分钟最多 59"); return; }
+                    interval = days * 1440 + hours * 60 + minutes;
+                } catch (NumberFormatException error) { toast("请输入有效的执行间隔"); return; }
+                if (interval < 1) { intervalMinutes.setError("间隔至少 1 分钟"); return; }
             }
-            if (timedForm && due[0] == 0) { toast("请设置首次执行时间"); return; }
-            if (!advances.isEmpty() && due[0] == 0) { toast(timedForm ? "请先选择执行时间" : "请先选择截止时间"); return; }
+            if (timedForm && due[0] == 0) { toast("请设置下次执行时间"); return; }
+            if ((!advances.isEmpty() || !fixedTimes.isEmpty()) && due[0] == 0) { toast(timedForm ? "请先选择执行时间" : "请先选择截止时间"); return; }
             for (TaskStore.Subtask child : subtaskDraft) {
                 if (child.title.trim().isEmpty()) { toast("请填写子任务标题或删除空白行"); return; }
                 child.title = child.title.trim();
             }
             List<Long> reminderTimes = new ArrayList<>();
             for (long minutes : advances) {
-                if (timedForm && minutes >= (long) interval * 1440) {
-                    toast("提醒提前量需短于执行周期");
-                    return;
-                }
                 long timeValue = due[0] - minutes * 60000;
                 if (timeValue <= System.currentTimeMillis()) { toast("提醒时间需晚于当前时间"); return; }
                 reminderTimes.add(timeValue);
+            }
+            for (long fixed : fixedTimes) {
+                if (fixed <= System.currentTimeMillis() || fixed >= due[0]) {
+                    toast("指定提醒需晚于现在且早于截止时间"); return;
+                }
+                if (!reminderTimes.contains(fixed)) reminderTimes.add(fixed);
             }
             task.title = value;
             task.note = note.getText().toString().trim();
             task.category = chosenCategory[0];
             task.priority = chosenPriority[0];
             task.dueAt = due[0];
-            task.repeatDays = interval;
+            task.repeatDays = 0;
+            task.repeatIntervalMinutes = interval;
             task.timed = timedForm;
             task.reminderTimes.clear();
             task.reminderTimes.addAll(reminderTimes);
+            task.fixedReminderTimes.clear();
+            task.fixedReminderTimes.addAll(fixedTimes);
             task.remindAt = reminderTimes.isEmpty() ? 0 : Collections.min(reminderTimes);
-            task.snoozeAt = snooze[0] > 0 && snooze[0] < due[0] ? snooze[0] : 0;
+            task.snoozeAt = !timedForm && snooze[0] > 0 && snooze[0] < due[0] ? snooze[0] : 0;
             if (timedForm) store.save(task);
             else {
                 task.subtasks.clear();
@@ -2129,15 +2157,16 @@ public final class MainActivity extends Activity {
     }
 
     private interface AdvanceListener { void selected(long minutes); }
+    private interface FixedReminderListener { void selected(long time); }
 
-    private void showReminderChoices(AdvanceListener listener) {
+    private void showReminderChoices(AdvanceListener listener, Runnable fixedAction) {
         LinearLayout content = column();
         content.setPadding(dp(18), dp(18), dp(18), dp(18));
         content.setBackground(shape(Color.WHITE, 20, Color.rgb(238, 225, 245)));
         TextView heading = text("添加提醒时间", 20, NAVY, true);
         heading.setGravity(Gravity.CENTER);
         content.addView(heading);
-        TextView hint = text("可选择多个提前提醒时间", 13, MUTED, false);
+        TextView hint = text("可添加多个提前提醒或指定时间", 13, MUTED, false);
         hint.setGravity(Gravity.CENTER);
         LinearLayout.LayoutParams hintParams = new LinearLayout.LayoutParams(-1, -2);
         hintParams.topMargin = dp(4);
@@ -2173,9 +2202,50 @@ public final class MainActivity extends Activity {
                 else listener.selected(minutes);
             });
         }
+        LinearLayout fixedOption = row();
+        fixedOption.setPadding(dp(14), 0, dp(14), 0);
+        fixedOption.setBackground(shape(PALE, 12, 0));
+        ImageView fixedIcon = new ImageView(this);
+        fixedIcon.setImageResource(R.drawable.ic_calendar);
+        fixedIcon.setColorFilter(VIOLET);
+        fixedOption.addView(fixedIcon, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView fixedLabel = text("指定日期和时间…", 15, NAVY, false);
+        fixedLabel.setPadding(dp(12), 0, 0, 0);
+        fixedOption.addView(fixedLabel);
+        options.addView(fixedOption, new LinearLayout.LayoutParams(-1, dp(46)));
+        fixedOption.setOnClickListener(v -> { dialog.dismiss(); fixedAction.run(); });
         dialog.show();
         dialog.getWindow().setBackgroundDrawableResource(android.R.color.transparent);
         dialog.getWindow().setLayout(getResources().getDisplayMetrics().widthPixels - dp(32), -2);
+    }
+
+    private void chooseFixedReminder(long dueAt, FixedReminderListener listener) {
+        if (dueAt == 0) { toast("请先设置截止时间"); return; }
+        Calendar chosen = Calendar.getInstance();
+        chosen.setTimeInMillis(Math.min(dueAt - 60000, System.currentTimeMillis() + 3600000));
+        if (useWheelDatePicker()) {
+            long[] selected = {chosen.getTimeInMillis()};
+            pickDueDateTime(selected, text("", 13, NAVY, false), text("", 13, NAVY, false), () -> {
+                if (selected[0] <= System.currentTimeMillis() || selected[0] >= dueAt)
+                    toast("指定提醒需晚于现在且早于截止时间");
+                else listener.selected(selected[0]);
+            });
+            return;
+        }
+        new DatePickerDialog(this, (picker, year, month, day) -> {
+            chosen.set(year, month, day);
+            new TimePickerDialog(this, (timePicker, hour, minute) -> {
+                chosen.set(Calendar.HOUR_OF_DAY, hour);
+                chosen.set(Calendar.MINUTE, minute);
+                chosen.set(Calendar.SECOND, 0);
+                chosen.set(Calendar.MILLISECOND, 0);
+                long fixed = chosen.getTimeInMillis();
+                if (fixed <= System.currentTimeMillis() || fixed >= dueAt) {
+                    toast("指定提醒需晚于现在且早于截止时间"); return;
+                }
+                listener.selected(fixed);
+            }, chosen.get(Calendar.HOUR_OF_DAY), chosen.get(Calendar.MINUTE), true).show();
+        }, chosen.get(Calendar.YEAR), chosen.get(Calendar.MONTH), chosen.get(Calendar.DAY_OF_MONTH)).show();
     }
 
     private void chooseCustomReminder(long initial, AdvanceListener listener) {

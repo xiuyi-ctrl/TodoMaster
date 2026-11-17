@@ -56,8 +56,8 @@ public final class ReminderReceiver extends BroadcastReceiver {
         long scheduled = intent.getLongExtra("reminder_time", -1);
         if (scheduled < 0 && task != null) scheduled = task.remindAt;
         if (task == null || task.deleted || task.paused) return;
-        if (task.timed && task.repeatDays > 0 && task.dueAt <= System.currentTimeMillis()) {
-            boolean notifyDue = !task.done && scheduled <= task.dueAt;
+        if (task.timed && task.repeatIntervalMinutes > 0 && task.dueAt <= System.currentTimeMillis()) {
+            boolean notifyDue = scheduled <= task.dueAt;
             String dueTitle = task.title;
             long dueAt = task.dueAt;
             store.advanceTimed(task);

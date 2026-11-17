@@ -178,7 +178,7 @@ final class LocalBackup {
     private static JSONObject toJson(Data data) throws JSONException {
         JSONObject root = new JSONObject();
         root.put("format", FORMAT);
-        root.put("schemaVersion", 3);
+        root.put("schemaVersion", 5);
         root.put("exportedAt", data.exportedAt);
         JSONObject settings = new JSONObject();
         settings.put("dateMode", data.dateMode);
@@ -199,7 +199,11 @@ final class LocalBackup {
             JSONArray times = new JSONArray();
             for (long time : task.reminderTimes) times.put(time);
             item.put("reminderTimes", times);
+            JSONArray fixedTimes = new JSONArray();
+            for (long time : task.fixedReminderTimes) fixedTimes.put(time);
+            item.put("fixedReminderTimes", fixedTimes);
             item.put("repeatDays", task.repeatDays);
+            item.put("repeatIntervalMinutes", task.repeatIntervalMinutes);
             item.put("timed", task.timed);
             item.put("paused", task.paused);
             item.put("done", task.done);
@@ -223,7 +227,7 @@ final class LocalBackup {
     private static Data fromJson(JSONObject root) throws IOException, JSONException {
         if (!FORMAT.equals(root.optString("format"))) throw new IOException("这不是咻咿待办备份");
         int version = root.optInt("schemaVersion", -1);
-        if (version != 1 && version != 2 && version != 3) throw new IOException("备份版本不受支持");
+        if (version < 1 || version > 5) throw new IOException("备份版本不受支持");
         Data data = new Data();
         data.exportedAt = root.getLong("exportedAt");
         JSONObject settings = root.getJSONObject("settings");
@@ -252,8 +256,18 @@ final class LocalBackup {
             task.dueAt = item.getLong("dueAt");
             JSONArray times = item.getJSONArray("reminderTimes");
             for (int j = 0; j < times.length(); j++) task.reminderTimes.add(times.getLong(j));
+            if (version >= 4) {
+                JSONArray fixedTimes = item.getJSONArray("fixedReminderTimes");
+                for (int j = 0; j < fixedTimes.length(); j++) {
+                    long fixed = fixedTimes.getLong(j);
+                    if (!task.reminderTimes.contains(fixed) || task.fixedReminderTimes.contains(fixed))
+                        throw new IOException("备份中的指定提醒时间无效");
+                    task.fixedReminderTimes.add(fixed);
+                }
+            }
             task.repeatDays = item.getInt("repeatDays");
             task.timed = item.getBoolean("timed");
+            task.repeatIntervalMinutes = version >= 5 ? item.getLong("repeatIntervalMinutes") : task.timed ? task.repeatDays * 1440L : 0;
             task.paused = item.getBoolean("paused");
             task.done = item.getBoolean("done");
             task.deleted = item.getBoolean("deleted");
@@ -261,10 +275,15 @@ final class LocalBackup {
             task.createdAt = item.getLong("createdAt");
             task.sortOrder = version >= 3 ? item.getLong("sortOrder") : task.createdAt;
             if (task.id < 1 || !ids.add(task.id) || task.title.trim().isEmpty() || task.dueAt < 0
-                    || task.repeatDays < 0 || task.deletedAt < 0 || task.createdAt < 0 || task.sortOrder < 0
+                    || task.repeatDays < 0 || task.repeatIntervalMinutes < 0 || task.deletedAt < 0 || task.createdAt < 0 || task.sortOrder < 0
                     || !isCategory(task.category) || !isPriority(task.priority)) throw new IOException("备份中的待办数据无效");
             for (long time : task.reminderTimes) {
                 if (time <= 0 || task.dueAt <= 0 || time >= task.dueAt) throw new IOException("备份中的提醒时间无效");
+            }
+            if (task.timed) {
+                task.reminderTimes.clear();
+                task.fixedReminderTimes.clear();
+                task.snoozeAt = 0;
             }
             if (version >= 2) {
                 JSONArray children = item.getJSONArray("subtasks");
