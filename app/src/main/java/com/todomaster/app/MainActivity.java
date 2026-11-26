@@ -17,6 +17,8 @@ import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.provider.OpenableColumns;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Point;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
@@ -885,36 +887,7 @@ public final class MainActivity extends Activity {
         scroll.setVerticalScrollBarEnabled(false);
         list = column();
         list.setPadding(0, dp(8), 0, dp(8));
-        if (!trash && !searching) list.setOnDragListener((view, event) -> {
-            if (event.getAction() == DragEvent.ACTION_DRAG_STARTED)
-                return event.getLocalState() instanceof Long;
-            if (event.getAction() == DragEvent.ACTION_DRAG_LOCATION) {
-                float screenY = event.getY() - scroll.getScrollY();
-                if (screenY < dp(48)) scroll.scrollBy(0, -dp(16));
-                else if (screenY > scroll.getHeight() - dp(48)) scroll.scrollBy(0, dp(16));
-                return true;
-            }
-            if (event.getAction() == DragEvent.ACTION_DROP && list.getChildCount() > 0) {
-                long movingId = (Long) event.getLocalState();
-                View target = list.getChildAt(list.getChildCount() - 1);
-                boolean after = true;
-                for (int i = 0; i < list.getChildCount(); i++) {
-                    View child = list.getChildAt(i);
-                    if (event.getY() < child.getTop() + child.getHeight() / 2f) {
-                        target = child;
-                        after = false;
-                        break;
-                    }
-                }
-                if (target.getTag() instanceof Long) {
-                    long targetId = (Long) target.getTag();
-                    boolean placeAfter = after;
-                    list.post(() -> { store.moveTo(movingId, targetId, placeAfter, timedPage); render(); });
-                }
-                return true;
-            }
-            return true;
-        });
+        if (!trash && !searching) enableTaskDrag(list, scroll, timedPage);
         scroll.addView(list);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
         if (!trash && !searching) {
@@ -923,6 +896,111 @@ public final class MainActivity extends Activity {
             add.setOnClickListener(v -> edit(null));
         }
         render();
+    }
+
+    private void enableTaskDrag(LinearLayout cards, ScrollView scroll, boolean timed) {
+        cards.setOnDragListener(new View.OnDragListener() {
+            private View source;
+            private int destination;
+            private boolean reordered;
+
+            @Override public boolean onDrag(View view, DragEvent event) {
+                switch (event.getAction()) {
+                    case DragEvent.ACTION_DRAG_STARTED:
+                        if (!(event.getLocalState() instanceof View)) return false;
+                        View card = (View) event.getLocalState();
+                        if (card.getParent() != cards || !(card.getTag() instanceof Long)) return false;
+                        source = card;
+                        reordered = false;
+                        destination = cards.indexOfChild(card);
+                        source.setAlpha(0f);
+                        return true;
+                    case DragEvent.ACTION_DRAG_LOCATION:
+                        if (source.getParent() != cards) return false;
+                        int previousScroll = scroll.getScrollY();
+                        float screenY = event.getY() - previousScroll;
+                        if (screenY < dp(48)) scroll.scrollBy(0, -dp(16));
+                        else if (screenY > scroll.getHeight() - dp(48)) scroll.scrollBy(0, dp(16));
+                        preview(event.getY() + scroll.getScrollY() - previousScroll);
+                        return true;
+                    case DragEvent.ACTION_DROP:
+                        if (source.getParent() != cards) return false;
+                        preview(event.getY());
+                        int original = cards.indexOfChild(source);
+                        if (destination != original) {
+                            long movingId = (Long) source.getTag();
+                            long targetId = (Long) cards.getChildAt(destination).getTag();
+                            store.moveTo(movingId, targetId, destination > original, timed);
+                            reordered = true;
+                            cards.post(() -> { if (list == cards && cards.isAttachedToWindow()) render(); });
+                        }
+                        return true;
+                    case DragEvent.ACTION_DRAG_ENDED:
+                        if (reordered) {
+                            source = null;
+                            return true;
+                        }
+                        source.setAlpha(1f);
+                        for (int i = 0; i < cards.getChildCount(); i++) {
+                            View child = cards.getChildAt(i);
+                            child.animate().cancel();
+                            child.setTranslationY(0);
+                        }
+                        source = null;
+                        return true;
+                    default:
+                        return true;
+                }
+            }
+
+            private void preview(float y) {
+                int original = cards.indexOfChild(source);
+                int next = 0;
+                for (int i = 0; i < cards.getChildCount(); i++) {
+                    View child = cards.getChildAt(i);
+                    // Use layout positions so the animation cannot shift its own thresholds.
+                    if (child != source && y >= child.getTop() + child.getHeight() / 2f) next++;
+                }
+                if (next == destination) return;
+                destination = next;
+                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) source.getLayoutParams();
+                int gap = source.getHeight() + params.topMargin + params.bottomMargin;
+                for (int i = 0; i < cards.getChildCount(); i++) {
+                    if (i == original) continue;
+                    View child = cards.getChildAt(i);
+                    int shift = i > original && i <= next ? -gap : i < original && i >= next ? gap : 0;
+                    if (ValueAnimator.areAnimatorsEnabled()) child.animate().translationY(shift).setDuration(150).start();
+                    else child.setTranslationY(shift);
+                }
+            }
+        });
+    }
+
+    private View.DragShadowBuilder liftedTaskShadow(View card, View handle) {
+        int padding = dp(8);
+        int lift = dp(4);
+        int[] cardPosition = new int[2];
+        int[] handlePosition = new int[2];
+        card.getLocationInWindow(cardPosition);
+        handle.getLocationInWindow(handlePosition);
+        return new View.DragShadowBuilder(card) {
+            @Override public void onProvideShadowMetrics(Point size, Point touch) {
+                size.set(card.getWidth() + padding * 2, card.getHeight() + padding * 2);
+                touch.set(padding + handlePosition[0] - cardPosition[0] + handle.getWidth() / 2,
+                        padding + handlePosition[1] - cardPosition[1] + handle.getHeight() / 2 + lift);
+            }
+
+            @Override public void onDrawShadow(Canvas canvas) {
+                GradientDrawable shadow = shape(0x303B3551, 18, 0);
+                shadow.setBounds(padding - dp(2), padding + dp(3),
+                        padding + card.getWidth() + dp(2), padding + card.getHeight() + dp(5));
+                shadow.draw(canvas);
+                canvas.save();
+                canvas.translate(padding, padding);
+                super.onDrawShadow(canvas);
+                canvas.restore();
+            }
+        };
     }
 
     private static final class CalendarEvent {
@@ -1418,7 +1496,7 @@ public final class MainActivity extends Activity {
             top.addView(handle, new LinearLayout.LayoutParams(dp(40), dp(48)));
             handle.setOnLongClickListener(v -> {
                 card.startDragAndDrop(ClipData.newPlainText("task", String.valueOf(task.id)),
-                        new View.DragShadowBuilder(card), task.id, 0);
+                        liftedTaskShadow(card, handle), card, 0);
                 return true;
             });
         }
